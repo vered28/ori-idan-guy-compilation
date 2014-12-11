@@ -1,0 +1,168 @@
+package IC.Parser;
+
+import IC.*;
+import IC.AST.*;
+import java.util.*;
+
+parser code  {:
+	
+	private Lexer lexer;
+	private SyntaxError error = null;
+
+	private int classDeclLine = 0;
+
+	public LibParser(Lexer lexer) {
+		super(lexer);
+		this.lexer = lexer;
+	}
+	
+	public int getLine() {
+		return lexer.getLineNumber();
+	}	
+
+	public int getColumn() {
+		return lexer.getColumnNumber();
+	}	
+
+	//cancel CUP's expected tokens message (only print ours):
+	protected void report_expected_token_ids() { }
+
+	public void report_fatal_error(String message, Object info) throws Exception {
+		if (error == null)
+			super.report_fatal_error(message, info);
+	}
+
+	public void report_error(String message, Object info) {
+		if (info instanceof Token && !stack.isEmpty()) {
+
+			String msg = "expected ";
+			boolean first = true;
+
+			/* expected_token_ids() is unpredictable. Attempt calling it
+			 * no more than 11 times (10 here, one afterwards) in order
+			 * to get some idea as to what was expected. */
+			 int count = 0;
+			 while (expected_token_ids().size() == 0 && count++ < 10);
+
+			/* always maintain another call to expected_token_ids() after
+			 * its' size returned greater than zero, since it is
+			 * unpredictable and sometimes returns partial data the
+			 * first time around... */
+
+			if (expected_token_ids().size() == 0) {
+				msg = "unexpected token '" + ((Token)info).getValue() + "'";
+			} else {
+
+				for (int symID : expected_token_ids()) {
+					String symb = sym.terminalNames[symID];
+					if (symb.equals("CLASS_ID"))
+						symb = "class identifier";
+					else if (symb.equals("LPAREN"))
+						symb = "(";
+					else if (symb.equals("RPAREN"))
+						symb = ")";
+					else if (symb.equals("LBRACE"))
+						symb = "{";
+					else if (symb.equals("RBRACE"))
+						symb = "}";
+					else if (symb.equals("LBRACK"))
+						symb = "[";
+					else if (symb.equals("RBRACK"))
+						symb = "]";
+					else if (symb.equals("COMMA"))
+						symb = ",";
+					else if (symb.equals("SEMICOLON"))
+						symb = ";";
+					else symb = symb.toLowerCase();
+					if (!first)
+						msg += " or ";
+					first = false;
+					msg += "'" + symb + "'";
+				}
+
+				msg += ", but found '" + ((Token)info).getValue() + "'";
+			}
+
+			error = new SyntaxError(msg, "syntax error", getLine(), getColumn());
+		}
+	}
+
+	public SyntaxError getSyntaxError() {
+		return error;
+	}
+
+:}
+
+////////////////////////////////////////////
+// Symbol list (terminals and non-terminals)
+
+nonterminal Program Program;
+nonterminal List<Method> Methods;
+nonterminal List<Method> MethodsList;
+nonterminal Method Method;
+nonterminal Type T;
+nonterminal Type Type;
+nonterminal Formal Formal;
+nonterminal List<Formal> FormalsList;
+nonterminal List<Formal> Formals;
+
+// DO NOT CHANGE THE ORDER OF terminals! KEEP IT THE SAME AS IC.cup
+// OR sym CLASS CANNOT BE USED FOR BOTH !!!
+
+terminal CLASS;
+terminal String CLASS_ID;
+terminal LBRACE, RBRACE;
+terminal STATIC;
+terminal VOID;
+terminal INT, BOOLEAN, STRING;
+terminal LPAREN, RPAREN;
+terminal LBRACK, RBRACK;
+terminal String IDENTIFIER;
+terminal SEMICOLON, COMMA;
+
+//////////////////////////
+// Precedence declarations
+
+//////////////
+// The grammar
+
+Program ::= CLASS CLASS_ID:id
+            {: classDeclLine = getLine(); :}
+            LBRACE MethodsList:ml RBRACE
+            {:
+	       if(id.equals("Library")) {
+			List<ICClass> classes = new LinkedList<ICClass>();
+			classes.add(new ICClass(classDeclLine, id, new LinkedList<Field>(), ml)); 
+			RESULT = new Program(classes);
+			}
+	       else
+			throw new SyntaxError("Class name must be Library.", "syntax error", getLine(), getColumn()); :}
+            ;
+
+MethodsList ::= Methods:ms {: RESULT = ms; :}
+			| {: RESULT = new LinkedList<Method>(); :} ;
+			
+Methods ::= Method:m {: RESULT = new LinkedList<Method>(); RESULT.add(m); :} |
+            Methods:ms Method:m {: ms.add(m); RESULT = ms; :} ;
+
+Method ::= STATIC T:t IDENTIFIER:id LPAREN FormalsList:fl RPAREN SEMICOLON
+	   {: RESULT = new LibraryMethod(t, id, fl); :} ;
+
+T ::= Type:t {: RESULT = t; :} |
+      VOID {: RESULT = new PrimitiveType(getLine(), DataTypes.VOID); :} ;
+
+Type ::= INT {: RESULT = new PrimitiveType(getLine(), DataTypes.INT); :} |
+	 BOOLEAN {: RESULT = new PrimitiveType(getLine(), DataTypes.BOOLEAN); :} |
+	 STRING {: RESULT = new PrimitiveType(getLine(), DataTypes.STRING); :} |
+	 CLASS_ID:id {: RESULT = new UserType(getLine(), id); :} |
+	 Type:t LBRACK RBRACK {: t.incrementDimension(); RESULT = t; :} ;
+	 
+FormalsList ::= Formals:fs {: RESULT = fs; :}
+			| {: RESULT = new LinkedList<Formal>(); :} ;
+	 
+Formals ::= Formal:f {: RESULT = new LinkedList<Formal>(); RESULT.add(f); :} |
+	    Formals:fs COMMA Formal:f {: fs.add(f); RESULT = fs; :} ;
+
+Formal ::= Type:t IDENTIFIER:id {: RESULT = new Formal(t, id); :} ;
+
+

@@ -1,0 +1,463 @@
+package IC.Parser;
+
+import IC.*;
+import IC.AST.*;
+import java.util.*;
+
+parser code  {:
+	
+	private Lexer lexer;
+	
+	private List<SyntaxError> errors = null;
+	private Stack<Integer> scopeBeginnings;
+
+	public Parser(Lexer lexer) {
+		super(lexer);
+		this.lexer = lexer;
+		scopeBeginnings = new Stack<Integer>(); 
+		errors = new LinkedList<SyntaxError>();
+	}
+	
+	public int getLine() {
+		return lexer.getLineNumber();
+	}	
+
+	public int getColumn() {
+		return lexer.getColumnNumber();
+	}	
+
+	//cancel CUP's expected tokens message (only print ours):
+	protected void report_expected_token_ids() { }
+
+	public void report_fatal_error(String message, Object info) throws Exception {
+		if (errors.size() == 0)
+			super.report_fatal_error(message, info);
+	}
+
+	public void report_error(String message, Object info) {
+		if (info instanceof Token && !stack.isEmpty()) {
+
+			String msg = "expected ";
+			boolean first = true;
+
+			/* expected_token_ids() is unpredictable. Attempt calling it
+			 * no more than 11 times (10 here, one afterwards) in order
+			 * to get some idea as to what was expected. */
+			 int count = 0;
+			 while (expected_token_ids().size() == 0 && count++ < 10);
+
+			/* always maintain another call to expected_token_ids() after
+			 * its' size returned greater than zero, since it is
+			 * unpredictable and sometimes returns partial data the
+			 * first time around... */
+			
+			if (expected_token_ids().size() == 0) {
+				msg = "unexpected token '" + ((Token)info).getValue() + "'";
+			} else {
+
+				for (int symID : expected_token_ids()) {
+					String symb = sym.terminalNames[symID];
+					if (symb.equals("CLASS_ID"))
+						symb = "class identifier";
+					else if (symb.equals("STR"))
+						symb = "string instance";
+					else if (symb.equals("INTEGER"))
+						symb = "integer literal";
+					else if (symb.equals("LPAREN"))
+						symb = "(";
+					else if (symb.equals("RPAREN"))
+						symb = ")";
+					else if (symb.equals("LBRACE"))
+						symb = "{";
+					else if (symb.equals("RBRACE"))
+						symb = "}";
+					else if (symb.equals("LBRACK"))
+						symb = "[";
+					else if (symb.equals("RBRACK"))
+						symb = "]";
+					else if (symb.equals("COMMA"))
+						symb = ",";
+					else if (symb.equals("SEMICOLON"))
+						symb = ";";
+					else if (symb.equals("OP_DOT"))
+						symb = ".";
+					else if (symb.equals("OP_ADD"))
+						symb = "+";
+					else if (symb.equals("OP_MINUS"))
+						symb = "-";
+					else if (symb.equals("OP_MULT"))
+						symb = "*";
+					else if (symb.equals("OP_DIV"))
+						symb = "/";
+					else if (symb.equals("OP_MOD"))
+						symb = "%";
+					else if (symb.equals("OP_NOT"))
+						symb = "!";
+					else if (symb.equals("OP_AND"))
+						symb = "&&";
+					else if (symb.equals("OP_OR"))
+						symb = "||";
+					else if (symb.equals("OP_LT"))
+						symb = "<";
+					else if (symb.equals("OP_LEQ"))
+						symb = "<=";
+					else if (symb.equals("OP_GT"))
+						symb = ">";
+					else if (symb.equals("OP_GEQ"))
+						symb = ">=";
+					else if (symb.equals("OP_EQ"))
+						symb = "==";
+					else if (symb.equals("OP_NEQ"))
+						symb = "!=";
+					else if (symb.equals("OP_ASSIGNMENT"))
+						symb = "=";
+					else if (symb.equals("error"))
+						continue;
+					else symb = symb.toLowerCase();
+					if (!first)
+						msg += " or ";
+					first = false;
+					msg += "'" + symb + "'";
+				}
+
+				msg += ", but found '" + ((Token)info).getValue() + "'";
+			}
+
+			errors.add(new SyntaxError(msg, "syntax error", getLine(), getColumn()));
+		}
+	}
+
+	public List<SyntaxError> getSyntaxErrors() {
+		return errors;
+	}
+
+:}
+
+////////////////////////////////////////////
+// Symbol list (terminals and non-terminals)
+
+nonterminal Program Program;
+nonterminal List<ICClass> ClassDeclList;
+nonterminal List<ICClass> ClassDecl;
+nonterminal ICClass ICClass;
+nonterminal String Inheritance;
+nonterminal List<ASTNode> ClassComponentsList;
+nonterminal List<ASTNode> ClassComponents;
+nonterminal List<ASTNode> ClassComponent;
+nonterminal List<ASTNode> FieldsList;
+nonterminal Field FullField;
+nonterminal String ExtraField;
+nonterminal List<String> ExtraFields;
+nonterminal Method Method;
+nonterminal Method VirtualMethod;
+nonterminal Method StaticMethod;
+nonterminal Field VoidType;
+nonterminal Field ReturnType;
+nonterminal Type Type;
+nonterminal Formal Formal;
+nonterminal List<Formal> FormalsList;
+nonterminal List<Formal> Formals;
+nonterminal List<Statement> StatementsList;
+nonterminal List<Statement> Statements;
+nonterminal Statement Statement;
+nonterminal Statement ConditionalStatement;
+nonterminal If IfStatement;
+nonterminal Statement IfElseStatement;
+nonterminal Statement StatementsScope;
+nonterminal Statement WhileStatement;
+nonterminal Statement VariableDeclarationStatement;
+nonterminal Statement NotVariableDeclarationStatement;
+nonterminal Expression Expression;
+nonterminal BinaryOp Binop;
+nonterminal UnaryOp Unop;
+nonterminal Literal Literal;
+nonterminal Location Location;
+nonterminal Call Call;
+nonterminal Call CommonCall;
+nonterminal Call StaticCall;
+nonterminal Call VirtualCall;
+nonterminal List<Expression> ExpressionsList;
+nonterminal List<Expression> Expressions;
+nonterminal Statement ReturnStatement;
+nonterminal Expression ReturnBody;
+nonterminal Statement VariableDeclaration;
+nonterminal Expression ExpressionAssignment;
+
+// DO NOT CHANGE ORDER OF TERMINALS (ESPECIALLY ALL UP TO INCLUDING COMMA)
+// MUST BE THE SAME AS Library.cup OR sym CLASS WON'T WORK FOR BOTH!!
+
+terminal CLASS;
+terminal String CLASS_ID;
+terminal LBRACE, RBRACE;
+terminal STATIC;
+terminal VOID;
+terminal INT, BOOLEAN, STRING;
+terminal LPAREN, RPAREN;
+terminal LBRACK, RBRACK;
+terminal String IDENTIFIER;
+terminal SEMICOLON, COMMA;
+terminal OP_DOT;
+terminal EXTENDS;
+terminal BREAK, CONTINUE;
+terminal THIS, NEW;
+terminal WHILE, IF, ELSE;
+terminal LENGTH;
+terminal OP_ADD, OP_MULT, OP_DIV, OP_MOD;
+terminal OP_AND, OP_OR;
+terminal OP_LT, OP_LEQ, OP_GT, OP_GEQ, OP_EQ, OP_NEQ ;
+terminal OP_MINUS, OP_NOT;
+terminal OP_UMINUS;
+terminal INTEGER, TRUE, FALSE, NULL;
+terminal String STR;
+terminal OP_ASSIGNMENT;
+terminal RETURN;
+
+//////////////////////////
+// Precedence declarations
+
+precedence right ELSE;
+
+precedence right OP_ASSIGNMENT;
+precedence left OP_OR;
+precedence left OP_AND;
+precedence left OP_EQ, OP_NEQ;
+precedence left OP_LT, OP_LEQ, OP_GT, OP_GEQ;
+precedence left OP_ADD, OP_MINUS;
+precedence left OP_MULT, OP_DIV, OP_MOD;
+precedence right OP_UMINUS, OP_NOT;
+precedence left OP_DOT, LBRACK, LPAREN;
+
+//no non-associativity defined in IC grammer!!
+//precedence nonassoc OP_LT, OP_LEQ, OP_GT, OP_GEQ, OP_EQ, OP_NEQ ;
+
+
+//////////////
+// The grammar
+
+Program ::= ClassDeclList:cls
+            {: RESULT = new Program(cls); :}
+            ;
+
+ClassDeclList ::= ClassDecl:cl {: RESULT = cl; :} |
+				  {: RESULT = new LinkedList<ICClass>(); :} ;
+
+ClassDecl ::= ICClass:c {: RESULT = new LinkedList<ICClass>(); RESULT.add(c); :} |
+			  ClassDecl:cl ICClass:c {: cl.add(c); RESULT = cl; :} ;
+
+ICClass ::= CLASS CLASS_ID:cid {: scopeBeginnings.push(getLine()); :}
+			Inheritance:ext LBRACE ClassComponentsList:comps RBRACE
+			{:
+			
+				List<Field> fields = new LinkedList<Field>();
+				List<Method> methods = new LinkedList<Method>();
+				
+				for (ASTNode node : comps) {
+					if (node instanceof Field) {
+						fields.add((Field)node);
+					} else {
+						methods.add((Method)node);
+					}
+				}
+				
+				if (ext == null)
+					RESULT = new ICClass(scopeBeginnings.pop(), cid, fields, methods);
+				else
+					RESULT = new ICClass(scopeBeginnings.pop(), cid, ext, fields, methods);
+				
+			:} ; 
+
+Inheritance ::= EXTENDS CLASS_ID:cid {: RESULT = cid; :} | ;
+
+ClassComponentsList ::= ClassComponents:lst {: RESULT = lst; :} |
+						{: RESULT = new LinkedList<ASTNode>(); :} ;
+
+ClassComponents ::= ClassComponent:cc {:
+										RESULT = new LinkedList<ASTNode>();
+										if (cc != null)
+											RESULT.addAll(cc);
+									  :} |
+					ClassComponents:lst ClassComponent:cc {: 
+															if (cc != null)
+																lst.addAll(cc);
+															RESULT = lst;
+												   		  :} ;
+
+ClassComponent ::= FieldsList:fl SEMICOLON {: RESULT = fl; :} |
+				   Method:m {: RESULT = new LinkedList<ASTNode>(); RESULT.add(m); :} |
+				   error ClassComponent |
+				   error SEMICOLON ;
+
+FullField ::= Type:t IDENTIFIER:id {: RESULT = new Field(t, id); :} ;
+
+ExtraField ::= COMMA IDENTIFIER:id {: RESULT = id; :} ;
+
+ExtraFields ::= ExtraField:e {: RESULT = new LinkedList<String>(); RESULT.add(e); :} |
+				ExtraField:f ExtraFields:fl {: fl.add(f); RESULT = fl; :} ;
+
+FieldsList ::= FullField:f {: RESULT = new LinkedList<ASTNode>(); RESULT.add(f); :} |
+			   FullField:f ExtraFields:extra {:
+			   									RESULT = new LinkedList<ASTNode>();
+			   									RESULT.add(f);
+			   									for(String s : extra) {
+			   										RESULT.add(new Field(f.getType(), s));
+			   									}
+			   								 :} ;
+
+Type ::= INT {: RESULT = new PrimitiveType(getLine(), DataTypes.INT); :} |
+	 BOOLEAN {: RESULT = new PrimitiveType(getLine(), DataTypes.BOOLEAN); :} |
+	 STRING {: RESULT = new PrimitiveType(getLine(), DataTypes.STRING); :} |
+	 CLASS_ID:cid {: RESULT = new UserType(getLine(), cid); :} |
+	 Type:t LBRACK RBRACK {: t.incrementDimension(); RESULT = t; :} ;
+
+VoidType ::= VOID IDENTIFIER:id {: RESULT = new Field(new PrimitiveType(getLine(), DataTypes.VOID), id); :} ;
+
+ReturnType ::= FullField:full {: RESULT = full; :} |
+			   VoidType:v {: RESULT = v; :} ;
+
+Method ::= StaticMethod:sm {: RESULT = sm; :} |
+		   VirtualMethod:vm {: RESULT = vm; :} ;
+
+StaticMethod ::= STATIC VirtualMethod:vm
+				 {: RESULT = new StaticMethod(vm.getType(), vm.getName(), vm.getFormals(), vm.getStatements()); :} ;
+
+VirtualMethod ::= ReturnType:type LPAREN FormalsList:fl RPAREN LBRACE StatementsList:sl RBRACE 
+				  {: RESULT = new VirtualMethod(type.getType(), type.getName(), fl, sl); :} |
+				  error RBRACE | error ReturnType ;
+
+FormalsList ::= Formals:fs {: RESULT = fs; :}
+			| {: RESULT = new LinkedList<Formal>(); :} |
+			error RPAREN | error LBRACE ;
+	 
+Formals ::= Formal:f {: RESULT = new LinkedList<Formal>(); RESULT.add(f); :} |
+	    Formals:fs COMMA Formal:f {: fs.add(f); RESULT = fs; :} ;
+
+Formal ::= FullField:field {: RESULT = new Formal(field.getType(), field.getName()); :} ;
+
+StatementsList ::= Statements:sl {: RESULT = sl; :} |
+				   {: RESULT = new LinkedList<Statement>(); :} ;
+
+Statements ::= Statement:s {:
+								RESULT = new LinkedList<Statement>();
+								if (s != null)
+									RESULT.add(s);
+							:} |
+			   Statements:sl Statement:s {:
+			   								if (s != null)
+			   									sl.add(s);
+			   								RESULT = sl;
+			   							 :} ;
+
+Statement ::= VariableDeclarationStatement:vds {: RESULT = vds; :} |
+			  NotVariableDeclarationStatement:nvds {: RESULT = nvds; :} ;
+
+NotVariableDeclarationStatement ::=
+			  BREAK {: RESULT = new Break(getLine()); :} SEMICOLON |
+			  CONTINUE {: RESULT = new Continue(getLine()); :} SEMICOLON |
+			  StatementsScope:ss {: RESULT = ss; :} |
+			  WhileStatement:ws {: RESULT = ws; :} |
+			  ConditionalStatement:cs {: RESULT = cs; :} |
+			  Location:loc OP_ASSIGNMENT Expression:e SEMICOLON {: RESULT = new Assignment(loc, e); :} |
+			  Call:call SEMICOLON {: RESULT = new CallStatement(call); :} |
+			  ReturnStatement:ret {: RESULT = ret; :} |
+			  error SEMICOLON ;
+			  
+VariableDeclarationStatement ::= VariableDeclaration:vd {: RESULT = vd; :} ;
+
+StatementsScope ::= LBRACE {: scopeBeginnings.push(getLine()); :}
+			  		StatementsList:sl RBRACE
+			  		{: if (scopeBeginnings.isEmpty()) 
+			  				//should not happen, but might (cause programmers write with bugs):
+			  				throw new SyntaxError("Parser error at end of scope.", "syntax error", getLine(), getColumn());
+			  		   RESULT = new StatementsBlock(scopeBeginnings.pop(), sl);
+			  		:} ;
+
+WhileStatement ::= WHILE LPAREN Expression:e RPAREN Statement:s
+			  	   {: RESULT = new While(e, s); :} |
+			  	   error RPAREN | error Statement ;
+
+ConditionalStatement ::= IfStatement:is {: RESULT = is; :} |
+						 IfElseStatement:ies {: RESULT = ies; :} ;
+
+IfStatement ::= IF LPAREN Expression:e RPAREN NotVariableDeclarationStatement:s
+				{: RESULT = new If(e, s); :} ;
+
+IfElseStatement ::= IfStatement:is ELSE NotVariableDeclarationStatement:s 
+				{: RESULT = new If(is.getCondition(), is.getOperation(), s); :} ;
+
+Expression ::= THIS {: RESULT = new This(getLine()); :} |
+			   NEW CLASS_ID:cid LPAREN RPAREN {: RESULT = new NewClass(getLine(), cid); :} | 
+			   NEW Type:t LBRACK Expression:e RBRACK {: RESULT = new NewArray(t, e); :} |
+			   Expression:e OP_DOT LENGTH {: RESULT = new Length(e); :} |
+			   Binop:op {: RESULT = op; :} |
+			   Expression:e1 OP_LT Expression:e2 {: RESULT = new LogicalBinaryOp(e1, BinaryOps.LT, e2); :} %prec OP_LT |
+			   Expression:e1 OP_LEQ Expression:e2 {: RESULT = new LogicalBinaryOp(e1, BinaryOps.LTE, e2); :} %prec OP_LEQ |
+			   Expression:e1 OP_GT Expression:e2 {: RESULT = new LogicalBinaryOp(e1, BinaryOps.GT, e2); :} %prec OP_GT |
+			   Expression:e1 OP_GEQ Expression:e2 {: RESULT = new LogicalBinaryOp(e1, BinaryOps.GTE, e2); :} %prec OP_GEQ |
+			   Expression:e1 OP_EQ Expression:e2 {: RESULT = new LogicalBinaryOp(e1, BinaryOps.EQUAL, e2); :} %prec OP_EQ |
+			   Expression:e1 OP_NEQ Expression:e2 {: RESULT = new LogicalBinaryOp(e1, BinaryOps.NEQUAL, e2); :} %prec OP_NEQ |
+			   Unop:op {: RESULT = op; :} |
+			   LPAREN Expression:e RPAREN {: RESULT = e; :} |
+			   Literal:e {: RESULT = e; :} |
+			   Location:loc {: RESULT = loc; :} |
+			   Call:call {: RESULT = call; :} ;
+			   
+Binop ::= Expression:e1 OP_ADD Expression:e2 {: RESULT = new MathBinaryOp(e1, BinaryOps.PLUS, e2); :} |
+		  Expression:e1 OP_MINUS Expression:e2 {: RESULT = new MathBinaryOp(e1, BinaryOps.MINUS, e2); :} %prec OP_MINUS |
+		  Expression:e1 OP_MULT Expression:e2 {: RESULT = new MathBinaryOp(e1, BinaryOps.MULTIPLY, e2); :} |
+		  Expression:e1 OP_DIV Expression:e2 {: RESULT = new MathBinaryOp(e1, BinaryOps.DIVIDE, e2); :} |
+		  Expression:e1 OP_MOD Expression:e2 {: RESULT = new MathBinaryOp(e1, BinaryOps.MOD, e2); :} |
+		  Expression:e1 OP_AND Expression:e2 {: RESULT = new LogicalBinaryOp(e1, BinaryOps.LAND, e2); :} |
+		  Expression:e1 OP_OR Expression:e2 {: RESULT = new LogicalBinaryOp(e1, BinaryOps.LOR, e2); :} ;
+		  
+Unop ::= OP_MINUS Expression:e {: RESULT = new MathUnaryOp(UnaryOps.UMINUS, e); :} %prec OP_UMINUS |
+		 OP_NOT Expression:e {: RESULT = new LogicalUnaryOp(UnaryOps.LNEG, e); :} ;
+
+Literal ::= INTEGER:val {: RESULT = new Literal(getLine(), LiteralTypes.INTEGER, val); :} |
+		    STR:val {: 
+		    			//store string as a stream of character (remove the enclosing quotes from the token!):
+		    			RESULT = new Literal(getLine(), LiteralTypes.STRING, val.substring(1, val.length() - 1));
+		    		:} |
+		    TRUE {: RESULT = new Literal(getLine(), LiteralTypes.TRUE); :}|
+		    FALSE {: RESULT = new Literal(getLine(), LiteralTypes.FALSE); :}|
+		    NULL {: RESULT = new Literal(getLine(), LiteralTypes.NULL); :} ;
+
+Location ::= IDENTIFIER:id {: RESULT = new VariableLocation(getLine(), id); :} |
+			 Expression:ext OP_DOT IDENTIFIER:id {: RESULT = new VariableLocation(getLine(), ext, id); :} |
+			 Expression:e1 LBRACK Expression:e2 RBRACK {: RESULT = new ArrayLocation(e1, e2); :} ;
+			 
+Call ::= StaticCall:sc {: RESULT = sc; :} |
+		 VirtualCall:vc {: RESULT = vc; :} ;
+
+StaticCall ::= CLASS_ID:cid OP_DOT IDENTIFIER:id LPAREN ExpressionsList:exprs RPAREN
+			   {: RESULT = new StaticCall(getLine(), cid, id, exprs); :} ;
+
+VirtualCall ::= CommonCall:cc {: RESULT = cc; :} |
+				Expression:loc OP_DOT CommonCall:cc {: RESULT = new VirtualCall(cc.getLine(), loc, cc.getName(), cc.getArguments()); :} ;
+
+CommonCall ::= IDENTIFIER:id LPAREN ExpressionsList:exprs RPAREN 
+			   {: RESULT = new VirtualCall(getLine(), id, exprs); :} ;
+
+ExpressionsList ::= Expressions:exprs {: RESULT = exprs; :} |
+					{: RESULT = new LinkedList<Expression>(); :} |
+					error RPAREN | error COMMA ;
+
+Expressions ::= Expression:e {: RESULT = new LinkedList<Expression>(); RESULT.add(e); :} |
+				Expressions:lst COMMA Expression:e {: lst.add(e); RESULT = lst; :} ;
+
+ReturnStatement ::= RETURN ReturnBody:val SEMICOLON 
+					{: if (val == null)
+						RESULT = new Return(getLine());
+					   else
+					   	RESULT = new Return(getLine(), val);
+					:};
+
+ReturnBody ::= Expression:e {: RESULT = e; :} | ;
+
+VariableDeclaration ::= Type:t IDENTIFIER:id ExpressionAssignment:e SEMICOLON
+						{: if (e == null)
+							RESULT = new LocalVariable(t, id);
+						   else
+						   	RESULT = new LocalVariable(t, id, e);
+						:} ;
+
+ExpressionAssignment ::= OP_ASSIGNMENT Expression:e {: RESULT = e; :} | ;
