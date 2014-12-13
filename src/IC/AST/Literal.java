@@ -26,8 +26,8 @@ public class Literal extends Expression {
 	 * @param type
 	 *            Literal type.
 	 */
-	public Literal(int line, LiteralTypes type) {
-		super(line);
+	public Literal(int line, int column, LiteralTypes type) {
+		super(line, column);
 		this.type = type;
 		value = type.getValue();
 	}
@@ -42,8 +42,8 @@ public class Literal extends Expression {
 	 * @param value
 	 *            Value of literal.
 	 */
-	public Literal(int line, LiteralTypes type, Object value) {
-		this(line, type);
+	public Literal(int line, int column, LiteralTypes type, Object value) {
+		this(line, column, type);
 		this.value = value;
 	}
 

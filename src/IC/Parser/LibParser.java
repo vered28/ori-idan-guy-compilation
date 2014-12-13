@@ -128,6 +128,7 @@ public class LibParser extends java_cup.runtime.lr_parser {
 	private SyntaxError error = null;
 
 	private int classDeclLine = 0;
+	private int classDeclColumn = 0;
 
 	public LibParser(Lexer lexer) {
 		super(lexer);
@@ -242,7 +243,9 @@ class CUP$LibParser$actions {
 		int idleft = ((java_cup.runtime.Symbol)CUP$LibParser$stack.peek()).left;
 		int idright = ((java_cup.runtime.Symbol)CUP$LibParser$stack.peek()).right;
 		String id = (String)((java_cup.runtime.Symbol) CUP$LibParser$stack.peek()).value;
- classDeclLine = getLine(); 
+ classDeclLine = getLine();
+               classDeclColumn = getColumn();
+            
               CUP$LibParser$result = parser.getSymbolFactory().newSymbol("NT$0",9, ((java_cup.runtime.Symbol)CUP$LibParser$stack.peek()), ((java_cup.runtime.Symbol)CUP$LibParser$stack.peek()), RESULT);
             }
           return CUP$LibParser$result;
@@ -262,7 +265,7 @@ class CUP$LibParser$actions {
 		
 	       if(id.equals("Library")) {
 			List<ICClass> classes = new LinkedList<ICClass>();
-			classes.add(new ICClass(classDeclLine, id, new LinkedList<Field>(), ml)); 
+			classes.add(new ICClass(classDeclLine, classDeclColumn, id, new LinkedList<Field>(), ml)); 
 			RESULT = new Program(classes);
 			}
 	       else
@@ -367,7 +370,7 @@ class CUP$LibParser$actions {
           case 9: // T ::= VOID 
             {
               Type RESULT =null;
-		 RESULT = new PrimitiveType(getLine(), DataTypes.VOID); 
+		 RESULT = new PrimitiveType(getLine(), getColumn(), DataTypes.VOID); 
               CUP$LibParser$result = parser.getSymbolFactory().newSymbol("T",4, ((java_cup.runtime.Symbol)CUP$LibParser$stack.peek()), ((java_cup.runtime.Symbol)CUP$LibParser$stack.peek()), RESULT);
             }
           return CUP$LibParser$result;
@@ -376,7 +379,7 @@ class CUP$LibParser$actions {
           case 10: // Type ::= INT 
             {
               Type RESULT =null;
-		 RESULT = new PrimitiveType(getLine(), DataTypes.INT); 
+		 RESULT = new PrimitiveType(getLine(), getColumn(), DataTypes.INT); 
               CUP$LibParser$result = parser.getSymbolFactory().newSymbol("Type",5, ((java_cup.runtime.Symbol)CUP$LibParser$stack.peek()), ((java_cup.runtime.Symbol)CUP$LibParser$stack.peek()), RESULT);
             }
           return CUP$LibParser$result;
@@ -385,7 +388,7 @@ class CUP$LibParser$actions {
           case 11: // Type ::= BOOLEAN 
             {
               Type RESULT =null;
-		 RESULT = new PrimitiveType(getLine(), DataTypes.BOOLEAN); 
+		 RESULT = new PrimitiveType(getLine(), getColumn(), DataTypes.BOOLEAN); 
               CUP$LibParser$result = parser.getSymbolFactory().newSymbol("Type",5, ((java_cup.runtime.Symbol)CUP$LibParser$stack.peek()), ((java_cup.runtime.Symbol)CUP$LibParser$stack.peek()), RESULT);
             }
           return CUP$LibParser$result;
@@ -394,7 +397,7 @@ class CUP$LibParser$actions {
           case 12: // Type ::= STRING 
             {
               Type RESULT =null;
-		 RESULT = new PrimitiveType(getLine(), DataTypes.STRING); 
+		 RESULT = new PrimitiveType(getLine(), getColumn(), DataTypes.STRING); 
               CUP$LibParser$result = parser.getSymbolFactory().newSymbol("Type",5, ((java_cup.runtime.Symbol)CUP$LibParser$stack.peek()), ((java_cup.runtime.Symbol)CUP$LibParser$stack.peek()), RESULT);
             }
           return CUP$LibParser$result;
@@ -406,7 +409,7 @@ class CUP$LibParser$actions {
 		int idleft = ((java_cup.runtime.Symbol)CUP$LibParser$stack.peek()).left;
 		int idright = ((java_cup.runtime.Symbol)CUP$LibParser$stack.peek()).right;
 		String id = (String)((java_cup.runtime.Symbol) CUP$LibParser$stack.peek()).value;
-		 RESULT = new UserType(getLine(), id); 
+		 RESULT = new UserType(getLine(), getColumn(), id); 
               CUP$LibParser$result = parser.getSymbolFactory().newSymbol("Type",5, ((java_cup.runtime.Symbol)CUP$LibParser$stack.peek()), ((java_cup.runtime.Symbol)CUP$LibParser$stack.peek()), RESULT);
             }
           return CUP$LibParser$result;

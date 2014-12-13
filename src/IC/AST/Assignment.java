@@ -25,7 +25,7 @@ public class Assignment extends Statement {
 	 *            Value to assign.
 	 */
 	public Assignment(Location variable, Expression assignment) {
-		super(variable.getLine());
+		super(variable.getLine(), variable.getColumn());
 		this.variable = variable;
 		this.assignment = assignment;
 	}

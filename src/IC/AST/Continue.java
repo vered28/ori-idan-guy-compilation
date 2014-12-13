@@ -18,8 +18,8 @@ public class Continue extends Statement {
 	 * @param line
 	 *            Line number of continue statement.
 	 */
-	public Continue(int line) {
-		super(line);
+	public Continue(int line, int column) {
+		super(line, column);
 	}
 
 }

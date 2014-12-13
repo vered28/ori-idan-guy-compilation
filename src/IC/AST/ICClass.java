@@ -34,9 +34,9 @@ public class ICClass extends ASTNode {
 	 * @param methods
 	 *            List of all methods in the class.
 	 */
-	public ICClass(int line, String name, List<Field> fields,
+	public ICClass(int line, int column, String name, List<Field> fields,
 			List<Method> methods) {
-		super(line);
+		super(line, column);
 		this.name = name;
 		this.fields = fields;
 		this.methods = methods;
@@ -56,9 +56,9 @@ public class ICClass extends ASTNode {
 	 * @param methods
 	 *            List of all methods in the class.
 	 */
-	public ICClass(int line, String name, String superClassName,
+	public ICClass(int line, int column, String name, String superClassName,
 			List<Field> fields, List<Method> methods) {
-		this(line, name, fields, methods);
+		this(line, column, name, fields, methods);
 		this.superClassName = superClassName;
 	}
 

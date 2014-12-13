@@ -25,7 +25,7 @@ public class Formal extends ASTNode {
 	 *            Name of parameter.
 	 */
 	public Formal(Type type, String name) {
-		super(type.getLine());
+		super(type.getLine(), type.getColumn());
 		this.type = type;
 		this.name = name;
 	}

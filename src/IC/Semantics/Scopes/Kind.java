@@ -2,10 +2,19 @@ package IC.Semantics.Scopes;
 
 public enum Kind {
 
-	CLASS(),
-	VAR(), //variable (including fields for Program, formals for Method and so on)
-	METHOD();
+	CLASS("Class"),
+	FIELD("Field"), //variable (including fields for Program)
+	FORMAL("Parameter"),
+	STATICMETHOD("Static method"),
+	VIRTUALMETHOD("Virtual method"),
+	VARIABLE("Local variable");
 	
-	private Kind() { }
+	private String value;
+	
+	private Kind(String value) { this.value = value; }
+	
+	public String getValue() {
+		return value;
+	}
 	
 }

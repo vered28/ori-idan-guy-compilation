@@ -6,6 +6,7 @@ import java.io.FileReader;
 import java.util.List;
 
 import java_cup.runtime.Symbol;
+import IC.AST.ICClass;
 import IC.AST.PrettyPrinter;
 import IC.AST.Program;
 import IC.Parser.Lexer;
@@ -13,7 +14,9 @@ import IC.Parser.LexicalError;
 import IC.Parser.LibParser;
 import IC.Parser.Parser;
 import IC.Parser.SyntaxError;
+import IC.Semantics.Scopes.ProgramScope;
 import IC.Semantics.Scopes.ScopesBuilder;
+import IC.Semantics.Scopes.ScopesPrinter;
 
 /**
 * @team Ori_Idan_Guy
@@ -63,6 +66,8 @@ public class Compiler {
     	
     	try {
 
+    		ICClass libraryClass = null;
+    		
     		//parse the library file:
     		if (libFile != null) {
     			Lexer libLexer = null;
@@ -70,13 +75,16 @@ public class Compiler {
     				
 		    		libLexer = new Lexer(new FileReader(libFile));
 		    		LibParser lp = new LibParser(libLexer);
-		    		lp.parse();
+		    		Symbol result = lp.parse();
 		    		
 		    		if (lp.getSyntaxError() != null) {
 		    			System.err.println("Error parsing Library file:");
 		    			printError(lp.getSyntaxError());
 		    			return;
 		    		}
+		    		
+	    			//System.out.println("Parsed " + libFile + " successfully!");
+		    		libraryClass = ((Program)result.value).getClasses().get(0);
 		    		
 	    		} catch (SyntaxError e) {
 	    			
@@ -112,10 +120,14 @@ public class Compiler {
 	    		} else {
 	    			//no error occurred, parse was successful :)
 	    			
-	    			new ScopesBuilder().visit((Program)result.value);
+	    			if (libraryClass != null)
+	    				((Program)result.value).getClasses().add(0, libraryClass);
 	    			
-	    			System.out.println("Parsed " + args[0] + " successfully!");
-	    			System.out.println(new PrettyPrinter(args[0]).visit((Program) result.value));
+	    			ProgramScope mainScope = (ProgramScope)new ScopesBuilder(args[0]).visit((Program)result.value);
+	    			
+	    			//System.out.println("Parsed " + args[0] + " successfully!");
+	    			//System.out.println(new PrettyPrinter(args[0]).visit((Program) result.value));
+	    			System.out.println(new ScopesPrinter().visit(mainScope));
 	    		}
 	    		
     		} catch (SyntaxError e) {

@@ -21,7 +21,7 @@ public class ExpressionBlock extends Expression {
 	 *            The expression.
 	 */
 	public ExpressionBlock(Expression expression) {
-		super(expression.getLine());
+		super(expression.getLine(), expression.getColumn());
 		this.expression = expression;
 	}
 

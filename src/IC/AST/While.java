@@ -25,7 +25,7 @@ public class While extends Statement {
 	 *            Operation to perform while condition is true.
 	 */
 	public While(Expression condition, Statement operation) {
-		super(condition.getLine());
+		super(condition.getLine(), condition.getColumn());
 		this.condition = condition;
 		this.operation = operation;
 	}

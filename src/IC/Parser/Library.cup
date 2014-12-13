@@ -10,6 +10,7 @@ parser code  {:
 	private SyntaxError error = null;
 
 	private int classDeclLine = 0;
+	private int classDeclColumn = 0;
 
 	public LibParser(Lexer lexer) {
 		super(lexer);
@@ -127,12 +128,14 @@ terminal SEMICOLON, COMMA;
 // The grammar
 
 Program ::= CLASS CLASS_ID:id
-            {: classDeclLine = getLine(); :}
+            {: classDeclLine = getLine();
+               classDeclColumn = getColumn();
+            :}
             LBRACE MethodsList:ml RBRACE
             {:
 	       if(id.equals("Library")) {
 			List<ICClass> classes = new LinkedList<ICClass>();
-			classes.add(new ICClass(classDeclLine, id, new LinkedList<Field>(), ml)); 
+			classes.add(new ICClass(classDeclLine, classDeclColumn, id, new LinkedList<Field>(), ml)); 
 			RESULT = new Program(classes);
 			}
 	       else
@@ -149,12 +152,12 @@ Method ::= STATIC T:t IDENTIFIER:id LPAREN FormalsList:fl RPAREN SEMICOLON
 	   {: RESULT = new LibraryMethod(t, id, fl); :} ;
 
 T ::= Type:t {: RESULT = t; :} |
-      VOID {: RESULT = new PrimitiveType(getLine(), DataTypes.VOID); :} ;
+      VOID {: RESULT = new PrimitiveType(getLine(), getColumn(), DataTypes.VOID); :} ;
 
-Type ::= INT {: RESULT = new PrimitiveType(getLine(), DataTypes.INT); :} |
-	 BOOLEAN {: RESULT = new PrimitiveType(getLine(), DataTypes.BOOLEAN); :} |
-	 STRING {: RESULT = new PrimitiveType(getLine(), DataTypes.STRING); :} |
-	 CLASS_ID:id {: RESULT = new UserType(getLine(), id); :} |
+Type ::= INT {: RESULT = new PrimitiveType(getLine(), getColumn(), DataTypes.INT); :} |
+	 BOOLEAN {: RESULT = new PrimitiveType(getLine(), getColumn(), DataTypes.BOOLEAN); :} |
+	 STRING {: RESULT = new PrimitiveType(getLine(), getColumn(), DataTypes.STRING); :} |
+	 CLASS_ID:id {: RESULT = new UserType(getLine(), getColumn(), id); :} |
 	 Type:t LBRACK RBRACK {: t.incrementDimension(); RESULT = t; :} ;
 	 
 FormalsList ::= Formals:fs {: RESULT = fs; :}

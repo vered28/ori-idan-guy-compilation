@@ -22,7 +22,7 @@ public abstract class UnaryOp extends Expression {
 	 *            The operand.
 	 */
 	protected UnaryOp(UnaryOps operator, Expression operand) {
-		super(operand.getLine());
+		super(operand.getLine(), operand.getColumn());
 		this.operator = operator;
 		this.operand = operand;
 	}

@@ -12,4 +12,8 @@ public class BlockScope extends Scope {
 		super("block " + ++blockNum, parent);
 	}
 
+	@Override
+	public Object accept(ScopesVisitor visitor) {
+		return visitor.visit(this);
+	}
 }

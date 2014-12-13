@@ -13,8 +13,8 @@ public abstract class New extends Expression {
 	 * @param line
 	 *            Line number of expression.
 	 */
-	protected New(int line) {
-		super(line);
+	protected New(int line, int column) {
+		super(line, column);
 	}
 
 }

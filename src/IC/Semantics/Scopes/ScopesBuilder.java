@@ -41,15 +41,20 @@ import IC.Semantics.SemanticError;
 
 public class ScopesBuilder implements Visitor {
 
+	private String filename;
+	
+	public ScopesBuilder(String filename) {
+		this.filename = filename;
+	}
+	
 	private void generateDetailedSemanticError(Exception e, ASTNode node) {
-		//TODO: set column in ASTNode for printing purposes
-		throw new SemanticError(e.getMessage(), node.getLine(), 1);
+		throw new SemanticError(e.getMessage(), node.getLine(), node.getColumn());
 	}
 	
 	@Override
 	public Object visit(Program program) {
 		
-		Scope scope = new ProgramScope();
+		Scope scope = new ProgramScope(filename);
 		program.setEnclosingScope(scope);
 		
 		for (ICClass cls : program.getClasses()) {
@@ -58,19 +63,41 @@ public class ScopesBuilder implements Visitor {
 			childScope.setParentScope(scope);
 			
 			try {
-				scope.addToScope(new Symbol(cls.getName(), Type.USERTYPE, Kind.CLASS));
+				scope.addToScope(new Symbol(cls.getName(), Type.USERTYPE, Kind.CLASS, cls));
 			} catch (Exception e) {
 				generateDetailedSemanticError(e, program);
 			}
+			
+			scope.addChildScope(childScope);
 		}
 
+		for (ICClass cls : program.getClasses()) {			
+			
+			if (cls.hasSuperClass()) {
+				
+				ICClass superClass = program.getClassByName(cls.getSuperClassName());
+				
+				if (superClass == null)
+					generateDetailedSemanticError(
+							new Exception("Class " + cls.getName() + " extends non-existing class "
+											+ cls.getSuperClassName()), program);
+				
+				cls.getEnclosingScope().setParentScope(superClass.getEnclosingScope());
+				
+				//we changed parenthood - cls is no longer a child of Program scope, set it accordingly:
+				superClass.getEnclosingScope().addChildScope(cls.getEnclosingScope());
+				scope.removeChildScope(cls.getEnclosingScope());
+			}
+			
+		}
+		
 		return scope;
 	}
 
 	@Override
 	public Object visit(ICClass icClass) {
 		
-		Scope scope = new ClassScope(icClass.getName());
+		Scope scope = new ClassScope(icClass.getName(), icClass);
 		icClass.setEnclosingScope(scope);
 		
 		for (Field f : icClass.getFields()) {
@@ -81,7 +108,8 @@ public class ScopesBuilder implements Visitor {
 		for (Method m : icClass.getMethods()) {
 			m.setEnclosingScope(scope);
 			Scope methodScope = (Scope)m.accept(this); //m will add itself to class scope
-			methodScope.setParentScope(scope);			
+			methodScope.setParentScope(scope);
+			scope.addChildScope(methodScope);
 		}
 		
 		return scope;
@@ -96,7 +124,8 @@ public class ScopesBuilder implements Visitor {
 			field.getEnclosingScope().addToScope(
 					new Symbol(field.getName(),
 							(Type)field.getType().accept(this),
-							Kind.VAR));
+							Kind.FIELD,
+							field));
 			
 		} catch (Exception e) {
 			generateDetailedSemanticError(e, field);
@@ -107,7 +136,7 @@ public class ScopesBuilder implements Visitor {
 	
 	private Scope visitMethod(Method method, boolean isStatic) {
 		
-		Scope scope = new Scope(method.getName());
+		Scope scope = new MethodScope(method.getName());
 		Scope classScope = method.getEnclosingScope();
 		//overriding enclosing scope to be new scope, now that
 		//you've extracted the class scope:
@@ -118,8 +147,8 @@ public class ScopesBuilder implements Visitor {
 			
 			classScope.addToScope(new Symbol(method.getName(),
 					(Type)method.getType().accept(this),
-					Kind.METHOD,
-					isStatic));
+					isStatic ? Kind.STATICMETHOD : Kind.VIRTUALMETHOD,
+					method));
 			
 		} catch (Exception e) {
 			generateDetailedSemanticError(e, method);
@@ -166,7 +195,8 @@ public class ScopesBuilder implements Visitor {
 			formal.getEnclosingScope().addToScope(
 					new Symbol(formal.getName(),
 							(Type)formal.getType().accept(this),
-							Kind.VAR));
+							Kind.FORMAL,
+							formal));
 			
 		} catch (Exception e) {
 			generateDetailedSemanticError(e, formal);
@@ -253,6 +283,7 @@ public class ScopesBuilder implements Visitor {
 		//define new scope under current enclosing scope:
 		Scope scope = new BlockScope();
 		scope.setParentScope(statementsBlock.getEnclosingScope());
+		statementsBlock.getEnclosingScope().addChildScope(scope);
 		//override enclosing scope to be new scope:
 		statementsBlock.setEnclosingScope(scope);
 		
@@ -274,7 +305,8 @@ public class ScopesBuilder implements Visitor {
 			localVariable.getEnclosingScope().addToScope(
 					new Symbol(localVariable.getName(),
 							(Type)localVariable.getType().accept(this),
-							Kind.VAR));
+							Kind.VARIABLE,
+							localVariable));
 			
 		} catch (Exception e) {
 			generateDetailedSemanticError(e, localVariable);

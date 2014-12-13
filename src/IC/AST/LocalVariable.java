@@ -27,7 +27,7 @@ public class LocalVariable extends Statement {
 	 *            Name of local variable.
 	 */
 	public LocalVariable(Type type, String name) {
-		super(type.getLine());
+		super(type.getLine(), type.getColumn());
 		this.type = type;
 		this.name = name;
 	}

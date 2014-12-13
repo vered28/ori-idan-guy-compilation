@@ -23,8 +23,8 @@ public abstract class Call extends Expression {
 	 * @param arguments
 	 *            List of all method arguments.
 	 */
-	protected Call(int line, String name, List<Expression> arguments) {
-		super(line);
+	protected Call(int line, int column, String name, List<Expression> arguments) {
+		super(line, column);
 		this.name = name;
 		this.arguments = arguments;
 	}

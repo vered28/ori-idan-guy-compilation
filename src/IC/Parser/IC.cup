@@ -9,12 +9,14 @@ parser code  {:
 	private Lexer lexer;
 	
 	private List<SyntaxError> errors = null;
-	private Stack<Integer> scopeBeginnings;
+	private Stack<Integer> scopeBeginningLines;
+	private Stack<Integer> scopeBeginningColumns;
 
 	public Parser(Lexer lexer) {
 		super(lexer);
 		this.lexer = lexer;
-		scopeBeginnings = new Stack<Integer>(); 
+		scopeBeginningLines = new Stack<Integer>(); 
+		scopeBeginningColumns = new Stack<Integer>();
 		errors = new LinkedList<SyntaxError>();
 	}
 	
@@ -244,7 +246,9 @@ ClassDeclList ::= ClassDecl:cl {: RESULT = cl; :} |
 ClassDecl ::= ICClass:c {: RESULT = new LinkedList<ICClass>(); RESULT.add(c); :} |
 			  ClassDecl:cl ICClass:c {: cl.add(c); RESULT = cl; :} ;
 
-ICClass ::= CLASS CLASS_ID:cid {: scopeBeginnings.push(getLine()); :}
+ICClass ::= CLASS CLASS_ID:cid {: scopeBeginningLines.push(getLine());
+                                  scopeBeginningColumns.push(getColumn());
+                               :}
 			Inheritance:ext LBRACE ClassComponentsList:comps RBRACE
 			{:
 			
@@ -260,9 +264,9 @@ ICClass ::= CLASS CLASS_ID:cid {: scopeBeginnings.push(getLine()); :}
 				}
 				
 				if (ext == null)
-					RESULT = new ICClass(scopeBeginnings.pop(), cid, fields, methods);
+					RESULT = new ICClass(scopeBeginningLines.pop(), scopeBeginningColumns.pop(), cid, fields, methods);
 				else
-					RESULT = new ICClass(scopeBeginnings.pop(), cid, ext, fields, methods);
+					RESULT = new ICClass(scopeBeginningLines.pop(), scopeBeginningColumns.pop(), cid, ext, fields, methods);
 				
 			:} ; 
 
@@ -303,13 +307,13 @@ FieldsList ::= FullField:f {: RESULT = new LinkedList<ASTNode>(); RESULT.add(f);
 			   									}
 			   								 :} ;
 
-Type ::= INT {: RESULT = new PrimitiveType(getLine(), DataTypes.INT); :} |
-	 BOOLEAN {: RESULT = new PrimitiveType(getLine(), DataTypes.BOOLEAN); :} |
-	 STRING {: RESULT = new PrimitiveType(getLine(), DataTypes.STRING); :} |
-	 CLASS_ID:cid {: RESULT = new UserType(getLine(), cid); :} |
+Type ::= INT {: RESULT = new PrimitiveType(getLine(), getColumn(), DataTypes.INT); :} |
+	 BOOLEAN {: RESULT = new PrimitiveType(getLine(), getColumn(), DataTypes.BOOLEAN); :} |
+	 STRING {: RESULT = new PrimitiveType(getLine(), getColumn(), DataTypes.STRING); :} |
+	 CLASS_ID:cid {: RESULT = new UserType(getLine(), getColumn(), cid); :} |
 	 Type:t LBRACK RBRACK {: t.incrementDimension(); RESULT = t; :} ;
 
-VoidType ::= VOID IDENTIFIER:id {: RESULT = new Field(new PrimitiveType(getLine(), DataTypes.VOID), id); :} ;
+VoidType ::= VOID IDENTIFIER:id {: RESULT = new Field(new PrimitiveType(getLine(), getColumn(), DataTypes.VOID), id); :} ;
 
 ReturnType ::= FullField:full {: RESULT = full; :} |
 			   VoidType:v {: RESULT = v; :} ;
@@ -351,8 +355,8 @@ Statement ::= VariableDeclarationStatement:vds {: RESULT = vds; :} |
 			  NotVariableDeclarationStatement:nvds {: RESULT = nvds; :} ;
 
 NotVariableDeclarationStatement ::=
-			  BREAK {: RESULT = new Break(getLine()); :} SEMICOLON |
-			  CONTINUE {: RESULT = new Continue(getLine()); :} SEMICOLON |
+			  BREAK {: RESULT = new Break(getLine(), getColumn()); :} SEMICOLON |
+			  CONTINUE {: RESULT = new Continue(getLine(), getColumn()); :} SEMICOLON |
 			  StatementsScope:ss {: RESULT = ss; :} |
 			  WhileStatement:ws {: RESULT = ws; :} |
 			  ConditionalStatement:cs {: RESULT = cs; :} |
@@ -363,12 +367,14 @@ NotVariableDeclarationStatement ::=
 			  
 VariableDeclarationStatement ::= VariableDeclaration:vd {: RESULT = vd; :} ;
 
-StatementsScope ::= LBRACE {: scopeBeginnings.push(getLine()); :}
+StatementsScope ::= LBRACE {: scopeBeginningLines.push(getLine());
+                              scopeBeginningColumns.push(getColumn());
+                            :}
 			  		StatementsList:sl RBRACE
-			  		{: if (scopeBeginnings.isEmpty()) 
+			  		{: if (scopeBeginningLines.isEmpty()) 
 			  				//should not happen, but might (cause programmers write with bugs):
 			  				throw new SyntaxError("Parser error at end of scope.", "syntax error", getLine(), getColumn());
-			  		   RESULT = new StatementsBlock(scopeBeginnings.pop(), sl);
+			  		   RESULT = new StatementsBlock(scopeBeginningLines.pop(), scopeBeginningColumns.pop(), sl);
 			  		:} ;
 
 WhileStatement ::= WHILE LPAREN Expression:e RPAREN Statement:s
@@ -384,8 +390,8 @@ IfStatement ::= IF LPAREN Expression:e RPAREN NotVariableDeclarationStatement:s
 IfElseStatement ::= IfStatement:is ELSE NotVariableDeclarationStatement:s 
 				{: RESULT = new If(is.getCondition(), is.getOperation(), s); :} ;
 
-Expression ::= THIS {: RESULT = new This(getLine()); :} |
-			   NEW CLASS_ID:cid LPAREN RPAREN {: RESULT = new NewClass(getLine(), cid); :} | 
+Expression ::= THIS {: RESULT = new This(getLine(), getColumn()); :} |
+			   NEW CLASS_ID:cid LPAREN RPAREN {: RESULT = new NewClass(getLine(), getColumn(), cid); :} | 
 			   NEW Type:t LBRACK Expression:e RBRACK {: RESULT = new NewArray(t, e); :} |
 			   Expression:e OP_DOT LENGTH {: RESULT = new Length(e); :} |
 			   Binop:op {: RESULT = op; :} |
@@ -412,30 +418,30 @@ Binop ::= Expression:e1 OP_ADD Expression:e2 {: RESULT = new MathBinaryOp(e1, Bi
 Unop ::= OP_MINUS Expression:e {: RESULT = new MathUnaryOp(UnaryOps.UMINUS, e); :} %prec OP_UMINUS |
 		 OP_NOT Expression:e {: RESULT = new LogicalUnaryOp(UnaryOps.LNEG, e); :} ;
 
-Literal ::= INTEGER:val {: RESULT = new Literal(getLine(), LiteralTypes.INTEGER, val); :} |
+Literal ::= INTEGER:val {: RESULT = new Literal(getLine(), getColumn(), LiteralTypes.INTEGER, val); :} |
 		    STR:val {: 
 		    			//store string as a stream of character (remove the enclosing quotes from the token!):
-		    			RESULT = new Literal(getLine(), LiteralTypes.STRING, val.substring(1, val.length() - 1));
+		    			RESULT = new Literal(getLine(), getColumn(), LiteralTypes.STRING, val.substring(1, val.length() - 1));
 		    		:} |
-		    TRUE {: RESULT = new Literal(getLine(), LiteralTypes.TRUE); :}|
-		    FALSE {: RESULT = new Literal(getLine(), LiteralTypes.FALSE); :}|
-		    NULL {: RESULT = new Literal(getLine(), LiteralTypes.NULL); :} ;
+		    TRUE {: RESULT = new Literal(getLine(), getColumn(), LiteralTypes.TRUE); :}|
+		    FALSE {: RESULT = new Literal(getLine(), getColumn(), LiteralTypes.FALSE); :}|
+		    NULL {: RESULT = new Literal(getLine(), getColumn(), LiteralTypes.NULL); :} ;
 
-Location ::= IDENTIFIER:id {: RESULT = new VariableLocation(getLine(), id); :} |
-			 Expression:ext OP_DOT IDENTIFIER:id {: RESULT = new VariableLocation(getLine(), ext, id); :} |
+Location ::= IDENTIFIER:id {: RESULT = new VariableLocation(getLine(), getColumn(), id); :} |
+			 Expression:ext OP_DOT IDENTIFIER:id {: RESULT = new VariableLocation(getLine(), getColumn(), ext, id); :} |
 			 Expression:e1 LBRACK Expression:e2 RBRACK {: RESULT = new ArrayLocation(e1, e2); :} ;
 			 
 Call ::= StaticCall:sc {: RESULT = sc; :} |
 		 VirtualCall:vc {: RESULT = vc; :} ;
 
 StaticCall ::= CLASS_ID:cid OP_DOT IDENTIFIER:id LPAREN ExpressionsList:exprs RPAREN
-			   {: RESULT = new StaticCall(getLine(), cid, id, exprs); :} ;
+			   {: RESULT = new StaticCall(getLine(), getColumn(), cid, id, exprs); :} ;
 
 VirtualCall ::= CommonCall:cc {: RESULT = cc; :} |
-				Expression:loc OP_DOT CommonCall:cc {: RESULT = new VirtualCall(cc.getLine(), loc, cc.getName(), cc.getArguments()); :} ;
+				Expression:loc OP_DOT CommonCall:cc {: RESULT = new VirtualCall(cc.getLine(), getColumn(), loc, cc.getName(), cc.getArguments()); :} ;
 
 CommonCall ::= IDENTIFIER:id LPAREN ExpressionsList:exprs RPAREN 
-			   {: RESULT = new VirtualCall(getLine(), id, exprs); :} ;
+			   {: RESULT = new VirtualCall(getLine(), getColumn(), id, exprs); :} ;
 
 ExpressionsList ::= Expressions:exprs {: RESULT = exprs; :} |
 					{: RESULT = new LinkedList<Expression>(); :} |
@@ -446,9 +452,9 @@ Expressions ::= Expression:e {: RESULT = new LinkedList<Expression>(); RESULT.ad
 
 ReturnStatement ::= RETURN ReturnBody:val SEMICOLON 
 					{: if (val == null)
-						RESULT = new Return(getLine());
+						RESULT = new Return(getLine(), getColumn());
 					   else
-					   	RESULT = new Return(getLine(), val);
+					   	RESULT = new Return(getLine(), getColumn(), val);
 					:};
 
 ReturnBody ::= Expression:e {: RESULT = e; :} | ;

@@ -18,8 +18,8 @@ public class Break extends Statement {
 	 * @param line
 	 *            Line number of break statement.
 	 */
-	public Break(int line) {
-		super(line);
+	public Break(int line, int column) {
+		super(line, column);
 	}
 
 }

@@ -20,8 +20,8 @@ public class Return extends Statement {
 	 * @param line
 	 *            Line number of return statement.
 	 */
-	public Return(int line) {
-		super(line);
+	public Return(int line, int column) {
+		super(line, column);
 	}
 
 	/**
@@ -32,8 +32,8 @@ public class Return extends Statement {
 	 * @param value
 	 *            Return value.
 	 */
-	public Return(int line, Expression value) {
-		this(line);
+	public Return(int line, int column, Expression value) {
+		this(line, column);
 		this.value = value;
 	}
 

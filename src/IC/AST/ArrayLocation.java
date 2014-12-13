@@ -25,7 +25,7 @@ public class ArrayLocation extends Location {
 	 *            Expression representing a numeric index.
 	 */
 	public ArrayLocation(Expression array, Expression index) {
-		super(array.getLine());
+		super(array.getLine(), array.getColumn());
 		this.array = array;
 		this.index = index;
 	}

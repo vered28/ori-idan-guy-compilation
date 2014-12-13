@@ -13,8 +13,8 @@ public abstract class Location extends Expression {
 	 * @param line
 	 *            Line number of reference.
 	 */
-	protected Location(int line) {
-		super(line);
+	protected Location(int line, int column) {
+		super(line, column);
 	}
 
 }
