@@ -17,4 +17,8 @@ public enum Kind {
 		return value;
 	}
 	
+	public static boolean isMethod(Kind k) {
+		return (k.equals(STATICMETHOD) || k.equals(VIRTUALMETHOD));
+	}
+	
 }
