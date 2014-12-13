@@ -1,24 +1,25 @@
 package IC.Semantics.Scopes;
 
-import IC.AST.PrimitiveType;
 
 public enum Type {
 
 	//not much different than AST's Type nodes. Created as enum here
 	//for better separation and abstraction between sub-packages.
 	
-	INT(),
-	BOOLEAN(),
-	STRING(),
-	VOID(),
-	USERTYPE(), //user-defined class
-	THIS();
+	INT("int"),
+	BOOLEAN("boolean"),
+	STRING("string"),
+	VOID("void"),
+	USERTYPE("Class"), //user-defined class
+	THIS("this");
 	
 	//represents [] for arrays (i.e dimension = 2 is for Type[][]).
 	//non-array types have default dimension 0.
 	private int dimension = 0;
 	
-	private Type() { } ;
+	private String value;
+	
+	private Type(String value) { this.value = value; } ;
 	
 	public void setDimension(int dimension) {
 		if (dimension < 0)
@@ -30,24 +31,8 @@ public enum Type {
 		return dimension;
 	}
 	
-	public static Type mapFromAstType(IC.AST.Type type) {
-		
-		if (type instanceof PrimitiveType) {
-			String astName = ((PrimitiveType)type).getName();
-			if (astName.equals("int"))
-				return Type.INT;
-			if (astName.equals("void"))
-				return Type.VOID;
-			if (astName.equals("boolean"))
-				return Type.BOOLEAN;
-			if (astName.equals("string"))
-				return Type.STRING;
-		} else {
-			return Type.USERTYPE;
-		}
-		
-		return null; //this is bad, should never get here!
-		
+	public String getValue() {
+		return value;
 	}
 	
 }

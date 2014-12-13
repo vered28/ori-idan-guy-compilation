@@ -13,8 +13,8 @@ public abstract class Statement extends ASTNode {
 	 * @param line
 	 *            Line number of statement.
 	 */
-	protected Statement(int line) {
-		super(line);
+	protected Statement(int line, int column) {
+		super(line, column);
 	}
 
 }

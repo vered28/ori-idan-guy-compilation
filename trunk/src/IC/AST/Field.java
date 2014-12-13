@@ -25,7 +25,7 @@ public class Field extends ASTNode {
 	 *            Name of field.
 	 */
 	public Field(Type type, String name) {
-		super(type.getLine());
+		super(type.getLine(), type.getColumn());
 		this.type = type;
 		this.name = name;
 	}

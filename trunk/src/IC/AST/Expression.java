@@ -13,7 +13,7 @@ public abstract class Expression extends ASTNode {
 	 * @param line
 	 *            Line number of expression.
 	 */
-	protected Expression(int line) {
-		super(line);
+	protected Expression(int line, int column) {
+		super(line, column);
 	}
 }

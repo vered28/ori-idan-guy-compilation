@@ -24,8 +24,8 @@ public class PrimitiveType extends Type {
 	 * @param type
 	 *            Specific primitive data type.
 	 */
-	public PrimitiveType(int line, DataTypes type) {
-		super(line);
+	public PrimitiveType(int line, int column, DataTypes type) {
+		super(line, column);
 		this.type = type;
 	}
 

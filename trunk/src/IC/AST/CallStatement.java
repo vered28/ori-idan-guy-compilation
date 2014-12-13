@@ -21,7 +21,7 @@ public class CallStatement extends Statement {
 	 *            Method call expression.
 	 */
 	public CallStatement(Call call) {
-		super(call.getLine());
+		super(call.getLine(), call.getColumn());
 		this.call = call;
 	}
 

@@ -42,7 +42,7 @@ public class If extends Statement {
 	 *            Operation to perform if condition is true.
 	 */
 	public If(Expression condition, Statement operation) {
-		super(condition.getLine());
+		super(condition.getLine(), condition.getColumn());
 		this.condition = condition;
 		this.operation = operation;
 	}

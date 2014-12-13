@@ -24,8 +24,8 @@ public class StatementsBlock extends Statement {
 	 * @param statements
 	 *            List of all statements in block.
 	 */
-	public StatementsBlock(int line, List<Statement> statements) {
-		super(line);
+	public StatementsBlock(int line, int column, List<Statement> statements) {
+		super(line, column);
 		this.statements = statements;
 	}
 

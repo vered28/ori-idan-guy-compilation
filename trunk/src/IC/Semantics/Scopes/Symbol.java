@@ -1,21 +1,19 @@
 package IC.Semantics.Scopes;
 
+import IC.AST.ASTNode;
+
 public class Symbol {
 
 	private String id;
 	private Type type;
 	private Kind kind;
-	private boolean isStatic;
+	private ASTNode node;
 	
-	public Symbol(String id, Type type, Kind kind) {
-		this(id, type, kind, false);
-	}
-
-	public Symbol(String id, Type type, Kind kind, boolean isStatic) {
+	public Symbol(String id, Type type, Kind kind, ASTNode node) {
 		this.id = id;
 		this.type = type;
 		this.kind = kind;
-		this.isStatic = isStatic;
+		this.node = node;
 	}
 
 	public String getID() {
@@ -29,9 +27,9 @@ public class Symbol {
 	public Kind getKind() {
 		return this.kind;
 	}
-
-	public boolean isStatic() {
-		return this.isStatic;
+	
+	public ASTNode getNode() {
+		return node;
 	}
 	
 }

@@ -28,9 +28,9 @@ public class StaticCall extends Call {
 	 * @param arguments
 	 *            List of all method arguments.
 	 */
-	public StaticCall(int line, String className, String name,
+	public StaticCall(int line, int column, String className, String name,
 			List<Expression> arguments) {
-		super(line, name, arguments);
+		super(line, column, name, arguments);
 		this.className = className;
 	}
 

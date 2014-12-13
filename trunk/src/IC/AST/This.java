@@ -18,8 +18,8 @@ public class This extends Expression {
 	 * @param line
 	 *            Line number of 'this' expression.
 	 */
-	public This(int line) {
-		super(line);
+	public This(int line, int column) {
+		super(line, column);
 	}
 
 }

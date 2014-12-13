@@ -1,6 +1,8 @@
 package IC.Semantics.Scopes;
 
-import java.util.HashMap;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Map;
 
 public class Scope {
@@ -9,6 +11,7 @@ public class Scope {
 	private String id;
 	
 	private Scope parentScope;
+	private List<Scope> childrenScopes;
 	
 	public Scope(String id) {
 		this(id, null);
@@ -17,7 +20,20 @@ public class Scope {
 	public Scope(String id, Scope parent) {
 		this.id = id;
 		this.parentScope = parent;
-		this.symbols = new HashMap<String, Symbol>();
+		this.symbols = new ScopeMap();
+		this.childrenScopes = new ArrayList<Scope>();
+	}
+	
+	public Object accept(ScopesVisitor visitor) {
+		return visitor.visit(this);
+	}
+	
+	public void setComparator(Comparator<String> comparator) {
+		((ScopeMap)symbols).setComparator(comparator);
+	}
+	
+	public Comparator<String> getComparator() {
+		return ((ScopeMap)symbols).getComparator();
 	}
 	
 	public Scope getParentScope() {
@@ -47,8 +63,40 @@ public class Scope {
 		return symbols.get(id);
 	}
 	
+	public List<Symbol> getSymbols() {
+		return ((ScopeMap)symbols).getSymbols();
+	}
+	
 	public boolean containsSymbol(String id) {
 		return (getSymbol(id) != null);
+	}
+		
+	public void addChildScope(Scope child) {
+		childrenScopes.add(child);
+	}
+	
+	/**
+	 * removes child parameter from children list, if exists
+	 * (does nothing otherwise)
+	 */
+	public void removeChildScope(Scope child) {
+		childrenScopes.remove(child);
+	}
+	
+	public List<Scope> getChildrenScopes() {
+		return childrenScopes;
+	}
+	
+	/**
+	 * returns child scope with the given id, or null if there is
+	 * no child with this id
+	 */
+	public Scope getChildScope(String id) {
+		for (Scope scope : childrenScopes) {
+			if (scope.getID().equals(id))
+				return scope;
+		}
+		return null;
 	}
 	
 }
