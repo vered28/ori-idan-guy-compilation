@@ -396,7 +396,7 @@ Expression ::= THIS {: RESULT = new This(getLine()); :} |
 			   Expression:e1 OP_EQ Expression:e2 {: RESULT = new LogicalBinaryOp(e1, BinaryOps.EQUAL, e2); :} %prec OP_EQ |
 			   Expression:e1 OP_NEQ Expression:e2 {: RESULT = new LogicalBinaryOp(e1, BinaryOps.NEQUAL, e2); :} %prec OP_NEQ |
 			   Unop:op {: RESULT = op; :} |
-			   LPAREN Expression:e RPAREN {: RESULT = e; :} |
+			   LPAREN Expression:e RPAREN {: RESULT = new ExpressionBlock(e); :} |
 			   Literal:e {: RESULT = e; :} |
 			   Location:loc {: RESULT = loc; :} |
 			   Call:call {: RESULT = call; :} ;

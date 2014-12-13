@@ -1,5 +1,7 @@
 package IC.AST;
 
+import IC.Semantics.Scopes.Scope;
+
 /**
  * Abstract AST node base class.
  * 
@@ -8,6 +10,7 @@ package IC.AST;
 public abstract class ASTNode {
 
 	private int line;
+	private Scope enclosingScope;
 
 	/**
 	 * Double dispatch method, to allow a visitor to visit a specific subclass.
@@ -31,6 +34,14 @@ public abstract class ASTNode {
 
 	public int getLine() {
 		return line;
+	}
+	
+	public void setEnclosingScope(Scope scope) {
+		enclosingScope = scope;
+	}
+	
+	public Scope getEnclosingScope() {
+		return enclosingScope;
 	}
 
 }
