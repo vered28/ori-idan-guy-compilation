@@ -14,7 +14,7 @@ public class ClassScope extends Scope {
 		//add this to scope and ignore exception (cannot be thrown, nothing
 		//has been added yet):
 		try {
-			addToScope(new Symbol("this", Type.THIS, Kind.CLASS, node));
+			addToScope(new Symbol("this", null, Kind.CLASS, node));
 		} catch (Exception e) {
 			//ignore / do nothing
 		}

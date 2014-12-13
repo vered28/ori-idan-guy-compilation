@@ -5,7 +5,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 
-public class Scope {
+public abstract class Scope {
 
 	private Map<String, Symbol> symbols;
 	private String id;
@@ -24,9 +24,7 @@ public class Scope {
 		this.childrenScopes = new ArrayList<Scope>();
 	}
 	
-	public Object accept(ScopesVisitor visitor) {
-		return visitor.visit(this);
-	}
+	public abstract Object accept(ScopesVisitor visitor);
 	
 	public void setComparator(Comparator<String> comparator) {
 		((ScopeMap)symbols).setComparator(comparator);

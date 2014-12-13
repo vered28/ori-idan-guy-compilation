@@ -1,25 +1,20 @@
 package IC.Semantics.Scopes;
 
 
-public enum Type {
+public abstract class Type {
 
 	//not much different than AST's Type nodes. Created as enum here
 	//for better separation and abstraction between sub-packages.
+		
+	//one of the visitors' accept() links between AST type and SymbolTable type.
 	
-	INT("int"),
-	BOOLEAN("boolean"),
-	STRING("string"),
-	VOID("void"),
-	USERTYPE("Class"), //user-defined class
-	THIS("this");
+	public abstract Object accept(ScopesVisitor visitor);
+
+	public abstract Object accept(ScopesVisitor visitor, IC.AST.Type type);
 	
 	//represents [] for arrays (i.e dimension = 2 is for Type[][]).
 	//non-array types have default dimension 0.
 	private int dimension = 0;
-	
-	private String value;
-	
-	private Type(String value) { this.value = value; } ;
 	
 	public void setDimension(int dimension) {
 		if (dimension < 0)
@@ -29,10 +24,6 @@ public enum Type {
 	
 	public int getDimension() {
 		return dimension;
-	}
-	
-	public String getValue() {
-		return value;
 	}
 	
 }

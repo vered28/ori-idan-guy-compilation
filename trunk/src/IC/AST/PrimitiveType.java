@@ -29,6 +29,10 @@ public class PrimitiveType extends Type {
 		this.type = type;
 	}
 
+	public DataTypes getPrimitiveType() {
+		return type;
+	}
+	
 	@Override
 	public String getName() {
 		return type.getDescription();

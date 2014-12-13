@@ -1,6 +1,5 @@
 package IC.Semantics.Scopes;
 
-import IC.DataTypes;
 import IC.AST.ASTNode;
 import IC.AST.ArrayLocation;
 import IC.AST.Assignment;
@@ -42,6 +41,7 @@ import IC.Semantics.SemanticError;
 public class ScopesBuilder implements Visitor {
 
 	private String filename;
+	private ICClass currentICClass = null;
 	
 	public ScopesBuilder(String filename) {
 		this.filename = filename;
@@ -59,11 +59,15 @@ public class ScopesBuilder implements Visitor {
 		
 		for (ICClass cls : program.getClasses()) {
 			
+			currentICClass = cls;
 			Scope childScope = (Scope)cls.accept(this);
 			childScope.setParentScope(scope);
 			
 			try {
-				scope.addToScope(new Symbol(cls.getName(), Type.USERTYPE, Kind.CLASS, cls));
+				scope.addToScope(new Symbol(cls.getName(),
+						new IC.Semantics.Scopes.UserType(cls.getName(), cls),
+						Kind.CLASS,
+						cls));
 			} catch (Exception e) {
 				generateDetailedSemanticError(e, program);
 			}
@@ -209,30 +213,20 @@ public class ScopesBuilder implements Visitor {
 	public Object visit(PrimitiveType type) {
 		
 		//map AST's primitive types to scope type:
-		String astType = type.getName();
+		Type t = new IC.Semantics.Scopes.PrimitiveType(type.getPrimitiveType());
+
+		if (t != null)
+			t.setDimension(type.getDimension());
 		
-		if (astType.equals(DataTypes.INT.getDescription())) {
-			return Type.INT;
-		}
-		
-		if (astType.equals(DataTypes.BOOLEAN.getDescription())) {
-			return Type.BOOLEAN;
-		}
-
-		if (astType.equals(DataTypes.VOID.getDescription())) {
-			return Type.VOID;
-		}
-
-		if (astType.equals(DataTypes.STRING.getDescription())) {
-			return Type.STRING;
-		}
-
-		return null; //in reality, will never return null (Parser sets type to be one of the above)
+		//in reality, will never return null (Parser sets type to be one of the above)
+		return t;
 	}
 
 	@Override
 	public Object visit(UserType type) {
-		return Type.USERTYPE;
+		Type t = new IC.Semantics.Scopes.UserType(type.getName(), currentICClass);
+		t.setDimension(type.getDimension());
+		return t;
 	}
 
 	@Override
@@ -255,14 +249,26 @@ public class ScopesBuilder implements Visitor {
 
 	@Override
 	public Object visit(If ifStatement) {
-		//nothing declared - do nothing
-		return null;
+		
+		ifStatement.getOperation().setEnclosingScope(ifStatement.getEnclosingScope());
+		ifStatement.getOperation().accept(this);
+		
+		if (ifStatement.getElseOperation() != null) {
+			ifStatement.getElseOperation().setEnclosingScope(ifStatement.getEnclosingScope());
+			ifStatement.getElseOperation().accept(this);
+		}
+		
+		return ifStatement.getEnclosingScope();
 	}
 
 	@Override
 	public Object visit(While whileStatement) {
-		//nothing declared - do nothing
-		return null;
+		
+		whileStatement.getOperation().setEnclosingScope(whileStatement.getEnclosingScope());
+		whileStatement.getOperation().accept(this);
+		
+		return whileStatement.getEnclosingScope();
+		
 	}
 
 	@Override
@@ -281,7 +287,7 @@ public class ScopesBuilder implements Visitor {
 	public Object visit(StatementsBlock statementsBlock) {
 
 		//define new scope under current enclosing scope:
-		Scope scope = new BlockScope();
+		Scope scope = new BlockScope(statementsBlock.getEnclosingScope());
 		scope.setParentScope(statementsBlock.getEnclosingScope());
 		statementsBlock.getEnclosingScope().addChildScope(scope);
 		//override enclosing scope to be new scope:
