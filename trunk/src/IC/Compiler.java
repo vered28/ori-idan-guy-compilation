@@ -13,6 +13,7 @@ import IC.Parser.LexicalError;
 import IC.Parser.LibParser;
 import IC.Parser.Parser;
 import IC.Parser.SyntaxError;
+import IC.Semantics.Scopes.ScopesBuilder;
 
 /**
 * @team Ori_Idan_Guy
@@ -110,6 +111,9 @@ public class Compiler {
 	    				printError(error);
 	    		} else {
 	    			//no error occurred, parse was successful :)
+	    			
+	    			new ScopesBuilder().visit((Program)result.value);
+	    			
 	    			System.out.println("Parsed " + args[0] + " successfully!");
 	    			System.out.println(new PrettyPrinter(args[0]).visit((Program) result.value));
 	    		}
