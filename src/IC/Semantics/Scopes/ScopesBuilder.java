@@ -6,6 +6,7 @@ import IC.AST.Assignment;
 import IC.AST.Break;
 import IC.AST.CallStatement;
 import IC.AST.Continue;
+import IC.AST.Expression;
 import IC.AST.ExpressionBlock;
 import IC.AST.Field;
 import IC.AST.Formal;
@@ -231,19 +232,39 @@ public class ScopesBuilder implements Visitor {
 
 	@Override
 	public Object visit(Assignment assignment) {
-		//nothing declared - do nothing
+
+		//set enclosing scopes and accept:
+		assignment.getVariable().setEnclosingScope(assignment.getEnclosingScope());
+		assignment.getVariable().accept(this);
+		
+		assignment.getAssignment().setEnclosingScope(assignment.getEnclosingScope());
+		assignment.getAssignment().accept(this);
+		
+		//nothing to return
 		return null;
 	}
 
 	@Override
 	public Object visit(CallStatement callStatement) {
-		//nothing declared - do nothing
+
+		//set enclosing scopes and accept:
+		callStatement.getCall().setEnclosingScope(callStatement.getEnclosingScope());
+		callStatement.getCall().accept(this);
+		
+		//nothing to return
 		return null;
 	}
 
 	@Override
 	public Object visit(Return returnStatement) {
-		//nothing declared - do nothing
+
+		//set enclosing scopes and accept:
+		if (returnStatement.hasValue()) {
+			returnStatement.getValue().setEnclosingScope(returnStatement.getEnclosingScope());
+			returnStatement.getValue().accept(this);
+		}
+		
+		//nothing to return
 		return null;
 	}
 
@@ -323,25 +344,59 @@ public class ScopesBuilder implements Visitor {
 
 	@Override
 	public Object visit(VariableLocation location) {
-		//nothing declared - do nothing
+
+		//set enclosing scopes and accept:
+		if (location.isExternal()) {
+			location.getLocation().setEnclosingScope(location.getEnclosingScope());
+			location.getLocation().accept(this);
+		}
+		
+		//nothing to return
 		return null;
 	}
 
 	@Override
 	public Object visit(ArrayLocation location) {
-		//nothing declared - do nothing
+
+		//set enclosing scopes and accept:
+		location.getArray().setEnclosingScope(location.getEnclosingScope());
+		location.getArray().accept(this);
+		
+		location.getIndex().setEnclosingScope(location.getEnclosingScope());
+		location.getIndex().accept(this);
+		
+		//nothing to return
 		return null;
 	}
 
 	@Override
 	public Object visit(StaticCall call) {
-		//nothing declared - do nothing
+
+		//set enclosing scopes and accept:
+		for (Expression expr : call.getArguments()) {
+			expr.setEnclosingScope(call.getEnclosingScope());
+			expr.accept(this);
+		}
+		
+		//nothing to return
 		return null;
 	}
 
 	@Override
 	public Object visit(VirtualCall call) {
-		//nothing declared - do nothing
+
+		//set enclosing scopes and accept:
+		if (call.isExternal()) {
+			call.getLocation().setEnclosingScope(call.getEnclosingScope());
+			call.getLocation().accept(this);
+		}
+		
+		for (Expression expr : call.getArguments()) {
+			expr.setEnclosingScope(call.getEnclosingScope());
+			expr.accept(this);
+		}
+		
+		//nothing to return
 		return null;
 	}
 
@@ -359,37 +414,76 @@ public class ScopesBuilder implements Visitor {
 
 	@Override
 	public Object visit(NewArray newArray) {
-		//nothing declared - do nothing
+
+		//set enclosing scopes and accept:
+		newArray.getType().setEnclosingScope(newArray.getEnclosingScope());
+		newArray.getType().accept(this);
+		
+		newArray.getSize().setEnclosingScope(newArray.getEnclosingScope());
+		newArray.getSize().accept(this);
+		
+		//nothing to return
 		return null;
 	}
 
 	@Override
 	public Object visit(Length length) {
-		//nothing declared - do nothing
+
+		//set enclosing scopes and accept:
+		length.getArray().setEnclosingScope(length.getEnclosingScope());
+		length.getArray().accept(this);
+		
+		//nothing to return
 		return null;
 	}
-
+	
 	@Override
 	public Object visit(MathBinaryOp binaryOp) {
-		//nothing declared - do nothing
+
+		//set enclosing scopes and accept:
+		binaryOp.getFirstOperand().setEnclosingScope(binaryOp.getEnclosingScope());
+		binaryOp.getFirstOperand().accept(this);
+
+		binaryOp.getSecondOperand().setEnclosingScope(binaryOp.getEnclosingScope());
+		binaryOp.getSecondOperand().accept(this);
+
+		//nothing to return
 		return null;
 	}
 
 	@Override
 	public Object visit(LogicalBinaryOp binaryOp) {
-		//nothing declared - do nothing
+
+		//set enclosing scopes and accept:
+		binaryOp.getFirstOperand().setEnclosingScope(binaryOp.getEnclosingScope());
+		binaryOp.getFirstOperand().accept(this);
+
+		binaryOp.getSecondOperand().setEnclosingScope(binaryOp.getEnclosingScope());
+		binaryOp.getSecondOperand().accept(this);
+
+		//nothing to return
 		return null;
 	}
 
 	@Override
 	public Object visit(MathUnaryOp unaryOp) {
-		//nothing declared - do nothing
+
+		//set enclosing scopes and accept:
+		unaryOp.getOperand().setEnclosingScope(unaryOp.getEnclosingScope());
+		unaryOp.getOperand().accept(this);
+
+		//nothing to return
 		return null;
 	}
 
 	@Override
 	public Object visit(LogicalUnaryOp unaryOp) {
-		//nothing declared - do nothing
+
+		//set enclosing scopes and accept:
+		unaryOp.getOperand().setEnclosingScope(unaryOp.getEnclosingScope());
+		unaryOp.getOperand().accept(this);
+
+		//nothing to return
 		return null;
 	}
 
@@ -401,7 +495,12 @@ public class ScopesBuilder implements Visitor {
 
 	@Override
 	public Object visit(ExpressionBlock expressionBlock) {
-		//nothing declared - do nothing
+
+		//set enclosing scopes and accept:
+		expressionBlock.getExpression().setEnclosingScope(expressionBlock.getEnclosingScope());
+		expressionBlock.getExpression().accept(this);
+
+		//nothing to return
 		return null;
 	}
 
