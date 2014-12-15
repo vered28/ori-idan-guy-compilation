@@ -280,16 +280,21 @@ public class DeclarationValidation implements Visitor {
 		
 		if (location.isExternal()) {
 			external = (Symbol)location.getLocation().accept(this);
-			if (!(external.getType() instanceof IC.Semantics.Scopes.UserType))
-				throw new SemanticError("'" + external.getID() + "' is not a class variable.",
-						location.getLine(), location.getColumn());
+			if (external.getID().equals("this")) {
+				//not really external...
+				external = null;
+			} else {
+				if (!(external.getType() instanceof IC.Semantics.Scopes.UserType))
+					throw new SemanticError("'" + external.getID() + "' is not a class variable.",
+							location.getLine(), location.getColumn());
+			}
 		}
 				
 		//if valid, return the symbol of the location:
 		return validateDeclaration(location.getName(), location,
 				Arrays.asList(new Kind[] { Kind.VARIABLE, Kind.FORMAL, Kind.FIELD }),
 				//if external, search in external symbol scope, and not in current scope:
-				location.isExternal() ?
+				(external != null) ?
 						getClassScopeByName(location.getEnclosingScope(),
 								((IC.Semantics.Scopes.UserType)external.getType()).getName()) :
 						location.getEnclosingScope());
@@ -341,16 +346,21 @@ public class DeclarationValidation implements Visitor {
 		
 		if (call.isExternal()) {
 			external = (Symbol)call.getLocation().accept(this);
-			if (!(external.getType() instanceof IC.Semantics.Scopes.UserType))
-				throw new SemanticError("'" + external.getID() + "' is not a class variable.",
-						call.getLine(), call.getColumn());
+			if (external.getID().equals("this")) {
+				//not really external...
+				external = null;
+			} else {
+				if (!(external.getType() instanceof IC.Semantics.Scopes.UserType))
+					throw new SemanticError("'" + external.getID() + "' is not a class variable.",
+							call.getLine(), call.getColumn());				
+			}
 		}
 
 		Symbol method =
 			validateDeclaration(call.getName(), call,
 				Kind.VIRTUALMETHOD,
 				//if external, validate method exists in external scope:
-				call.isExternal() ?
+				(external != null) ?
 						getClassScopeByName(
 								call.getEnclosingScope(),
 								((IC.Semantics.Scopes.UserType)external.getType()).getName()) :
@@ -366,7 +376,7 @@ public class DeclarationValidation implements Visitor {
 	@Override
 	public Object visit(This thisExpression) {
 		//do nothing
-		return null;
+		return new Symbol("this", null, null, null);
 	}
 
 	@Override
