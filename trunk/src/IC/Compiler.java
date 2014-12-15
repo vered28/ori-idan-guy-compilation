@@ -17,6 +17,7 @@ import IC.Parser.SyntaxError;
 import IC.Semantics.Scopes.ProgramScope;
 import IC.Semantics.Scopes.ScopesBuilder;
 import IC.Semantics.Scopes.ScopesPrinter;
+import IC.Semantics.Validations.DeclarationValidation;
 
 /**
 * @team Ori_Idan_Guy
@@ -124,10 +125,16 @@ public class Compiler {
 	    				((Program)result.value).getClasses().add(0, libraryClass);
 	    			
 	    			ProgramScope mainScope = (ProgramScope)new ScopesBuilder(args[0]).visit((Program)result.value);
+	    			try {
+		    			new DeclarationValidation().visit((Program)result.value);	    				
+	    			} catch (Exception e) {
+	    				System.err.println(e.getMessage());
+	    				//e.printStackTrace();
+	    			}
 	    			
 	    			//System.out.println("Parsed " + args[0] + " successfully!");
 	    			//System.out.println(new PrettyPrinter(args[0]).visit((Program) result.value));
-	    			System.out.println(new ScopesPrinter().visit(mainScope));
+	    			//System.out.println(new ScopesPrinter().visit(mainScope));
 	    		}
 	    		
     		} catch (SyntaxError e) {

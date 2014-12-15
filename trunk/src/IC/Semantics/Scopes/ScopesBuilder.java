@@ -271,6 +271,9 @@ public class ScopesBuilder implements Visitor {
 	@Override
 	public Object visit(If ifStatement) {
 		
+		ifStatement.getCondition().setEnclosingScope(ifStatement.getEnclosingScope());
+		ifStatement.getCondition().accept(this);
+		
 		ifStatement.getOperation().setEnclosingScope(ifStatement.getEnclosingScope());
 		ifStatement.getOperation().accept(this);
 		
@@ -284,6 +287,9 @@ public class ScopesBuilder implements Visitor {
 
 	@Override
 	public Object visit(While whileStatement) {
+		
+		whileStatement.getCondition().setEnclosingScope(whileStatement.getEnclosingScope());
+		whileStatement.getCondition().accept(this);
 		
 		whileStatement.getOperation().setEnclosingScope(whileStatement.getEnclosingScope());
 		whileStatement.getOperation().accept(this);
@@ -334,6 +340,12 @@ public class ScopesBuilder implements Visitor {
 							(Type)localVariable.getType().accept(this),
 							Kind.VARIABLE,
 							localVariable));
+			
+			if (localVariable.hasInitValue()) {
+				localVariable.getInitValue().setEnclosingScope(
+						localVariable.getEnclosingScope());
+				localVariable.getInitValue().accept(this);
+			}
 			
 		} catch (Exception e) {
 			generateDetailedSemanticError(e, localVariable);

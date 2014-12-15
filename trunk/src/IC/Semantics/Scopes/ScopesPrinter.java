@@ -68,10 +68,7 @@ public class ScopesPrinter implements ScopesVisitor {
 		output.append("\n");
 		
 		for (Symbol sym : icClass.getSymbols()) {
-			
-			if (sym.getID().equals("this"))
-				continue;
-			
+						
 			output.append("\t");
 			output.append(sym.getKind().getValue());
 			output.append(": ");
