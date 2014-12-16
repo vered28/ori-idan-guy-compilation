@@ -50,7 +50,7 @@ public abstract class Scope {
 		
 		if (symbols.containsKey(symbol.getID())) {
 			//throw checked exception to force catching and handling:
-			throw new Exception("symbol " + symbol.getID() + " defined more than once in scope.");
+			throw new Exception(symbol.getKind().getValue() + " " + symbol.getID() + " defined more than once in scope " + getID() + ".");
 		}
 		
 		symbols.put(symbol.getID(), symbol);

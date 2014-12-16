@@ -42,10 +42,17 @@ import IC.Semantics.SemanticError;
 public class ScopesBuilder implements Visitor {
 
 	private String filename;
+	
+	/* hasLibrary indicates whether a Library table was supplied (mainly used
+	 * for correct printing of Library as first class in table, and not by
+	 * lexicographic order). */
+	private boolean hasLibrary;
+	
 	private ICClass currentICClass = null;
 	
-	public ScopesBuilder(String filename) {
+	public ScopesBuilder(String filename, boolean hasLibrary) {
 		this.filename = filename;
+		this.hasLibrary = hasLibrary;
 	}
 	
 	private void generateDetailedSemanticError(Exception e, ASTNode node) {
@@ -55,7 +62,7 @@ public class ScopesBuilder implements Visitor {
 	@Override
 	public Object visit(Program program) {
 		
-		Scope scope = new ProgramScope(filename);
+		Scope scope = new ProgramScope(filename, hasLibrary);
 		program.setEnclosingScope(scope);
 		
 		for (ICClass cls : program.getClasses()) {

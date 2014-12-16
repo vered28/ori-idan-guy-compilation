@@ -14,10 +14,8 @@ import IC.Parser.LexicalError;
 import IC.Parser.LibParser;
 import IC.Parser.Parser;
 import IC.Parser.SyntaxError;
-import IC.Semantics.Scopes.ProgramScope;
-import IC.Semantics.Scopes.ScopesBuilder;
-import IC.Semantics.Scopes.ScopesPrinter;
-import IC.Semantics.Validations.DeclarationValidation;
+import IC.Semantics.SemanticChecks;
+import IC.Semantics.SemanticError;
 
 /**
 * @team Ori_Idan_Guy
@@ -124,17 +122,19 @@ public class Compiler {
 	    			if (libraryClass != null)
 	    				((Program)result.value).getClasses().add(0, libraryClass);
 	    			
-	    			ProgramScope mainScope = (ProgramScope)new ScopesBuilder(args[0]).visit((Program)result.value);
+	    			SemanticChecks semantics = new SemanticChecks(
+	    					((Program)result.value),
+	    					args[0], libraryClass != null);
 	    			try {
-		    			new DeclarationValidation().visit((Program)result.value);	    				
-	    			} catch (Exception e) {
-	    				System.err.println(e.getMessage());
+	    				semantics.run();	    					
+	    			} catch (SemanticError e) {
+	    				System.err.println(e.getLine());
 	    				//e.printStackTrace();
 	    			}
 	    			
 	    			//System.out.println("Parsed " + args[0] + " successfully!");
 	    			//System.out.println(new PrettyPrinter(args[0]).visit((Program) result.value));
-	    			//System.out.println(new ScopesPrinter().visit(mainScope));
+	    			//System.out.println(semantics.getMainScope().accept(new ScopesPrinter()));
 	    		}
 	    		
     		} catch (SyntaxError e) {
