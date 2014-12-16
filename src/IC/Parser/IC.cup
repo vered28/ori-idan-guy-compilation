@@ -243,8 +243,8 @@ Program ::= ClassDeclList:cls
 ClassDeclList ::= ClassDecl:cl {: RESULT = cl; :} |
 				  {: RESULT = new LinkedList<ICClass>(); :} ;
 
-ClassDecl ::= ICClass:c {: RESULT = new LinkedList<ICClass>(); RESULT.add(c); :} |
-			  ClassDecl:cl ICClass:c {: cl.add(c); RESULT = cl; :} ;
+ClassDecl ::= ICClass:c {: RESULT = new LinkedList<ICClass>(); if (c != null) RESULT.add(c); :} |
+			  ClassDecl:cl ICClass:c {: if (c != null && cl != null) cl.add(c); RESULT = cl; :} ;
 
 ICClass ::= CLASS CLASS_ID:cid {: scopeBeginningLines.push(getLine());
                                   scopeBeginningColumns.push(getColumn());
@@ -255,18 +255,20 @@ ICClass ::= CLASS CLASS_ID:cid {: scopeBeginningLines.push(getLine());
 				List<Field> fields = new LinkedList<Field>();
 				List<Method> methods = new LinkedList<Method>();
 				
-				for (ASTNode node : comps) {
-					if (node instanceof Field) {
-						fields.add((Field)node);
-					} else {
-						methods.add((Method)node);
+				if (comps != null) {
+					for (ASTNode node : comps) {
+						if (node instanceof Field) {
+							fields.add((Field)node);
+						} else {
+							methods.add((Method)node);
+						}
 					}
+					
+					if (ext == null)
+						RESULT = new ICClass(scopeBeginningLines.pop(), scopeBeginningColumns.pop(), cid, fields, methods);
+					else
+						RESULT = new ICClass(scopeBeginningLines.pop(), scopeBeginningColumns.pop(), cid, ext, fields, methods);
 				}
-				
-				if (ext == null)
-					RESULT = new ICClass(scopeBeginningLines.pop(), scopeBeginningColumns.pop(), cid, fields, methods);
-				else
-					RESULT = new ICClass(scopeBeginningLines.pop(), scopeBeginningColumns.pop(), cid, ext, fields, methods);
 				
 			:} ; 
 
@@ -281,13 +283,13 @@ ClassComponents ::= ClassComponent:cc {:
 											RESULT.addAll(cc);
 									  :} |
 					ClassComponents:lst ClassComponent:cc {: 
-															if (cc != null)
+															if (cc != null && lst != null)
 																lst.addAll(cc);
 															RESULT = lst;
 												   		  :} ;
 
 ClassComponent ::= FieldsList:fl SEMICOLON {: RESULT = fl; :} |
-				   Method:m {: RESULT = new LinkedList<ASTNode>(); RESULT.add(m); :} |
+				   Method:m {: RESULT = new LinkedList<ASTNode>(); if (m != null) RESULT.add(m); :} |
 				   error ClassComponent |
 				   error SEMICOLON ;
 
@@ -295,16 +297,18 @@ FullField ::= Type:t IDENTIFIER:id {: RESULT = new Field(t, id); :} ;
 
 ExtraField ::= COMMA IDENTIFIER:id {: RESULT = id; :} ;
 
-ExtraFields ::= ExtraField:e {: RESULT = new LinkedList<String>(); RESULT.add(e); :} |
-				ExtraField:f ExtraFields:fl {: fl.add(f); RESULT = fl; :} ;
+ExtraFields ::= ExtraField:e {: RESULT = new LinkedList<String>(); if (e != null) RESULT.add(e); :} |
+				ExtraField:f ExtraFields:fl {: if (f != null && fl!= null) fl.add(f); RESULT = fl; :} ;
 
-FieldsList ::= FullField:f {: RESULT = new LinkedList<ASTNode>(); RESULT.add(f); :} |
+FieldsList ::= FullField:f {: RESULT = new LinkedList<ASTNode>(); if (f != null) RESULT.add(f); :} |
 			   FullField:f ExtraFields:extra {:
 			   									RESULT = new LinkedList<ASTNode>();
-			   									RESULT.add(f);
-			   									for(String s : extra) {
-			   										RESULT.add(new Field(f.getType(), s));
-			   									}
+			   									if (f != null)
+				   									RESULT.add(f);
+				   								if (extra != null)
+				   									for(String s : extra) {
+				   										RESULT.add(new Field(f.getType(), s));
+				   									}
 			   								 :} ;
 
 Type ::= INT {: RESULT = new PrimitiveType(getLine(), getColumn(), DataTypes.INT); :} |
@@ -322,20 +326,26 @@ Method ::= StaticMethod:sm {: RESULT = sm; :} |
 		   VirtualMethod:vm {: RESULT = vm; :} ;
 
 StaticMethod ::= STATIC VirtualMethod:vm
-				 {: RESULT = new StaticMethod(vm.getType(), vm.getName(), vm.getFormals(), vm.getStatements()); :} ;
+				 {: if (vm != null)
+				 		RESULT = new StaticMethod(vm.getType(), vm.getName(), vm.getFormals(), vm.getStatements());
+				 :} ;
 
 VirtualMethod ::= ReturnType:type LPAREN FormalsList:fl RPAREN LBRACE StatementsList:sl RBRACE 
-				  {: RESULT = new VirtualMethod(type.getType(), type.getName(), fl, sl); :} |
+				  {: if (type != null)
+				  		RESULT = new VirtualMethod(type.getType(), type.getName(), fl, sl);
+				  :} |
 				  error RBRACE | error ReturnType ;
 
 FormalsList ::= Formals:fs {: RESULT = fs; :}
 			| {: RESULT = new LinkedList<Formal>(); :} |
 			error RPAREN | error LBRACE ;
 	 
-Formals ::= Formal:f {: RESULT = new LinkedList<Formal>(); RESULT.add(f); :} |
-	    Formals:fs COMMA Formal:f {: fs.add(f); RESULT = fs; :} ;
+Formals ::= Formal:f {: RESULT = new LinkedList<Formal>(); if (f != null) RESULT.add(f); :} |
+	    Formals:fs COMMA Formal:f {: if (f != null && fs != null) fs.add(f); RESULT = fs; :} ;
 
-Formal ::= FullField:field {: RESULT = new Formal(field.getType(), field.getName()); :} ;
+Formal ::= FullField:field {: if (field != null)
+								RESULT = new Formal(field.getType(), field.getName());
+							:} ;
 
 StatementsList ::= Statements:sl {: RESULT = sl; :} |
 				   {: RESULT = new LinkedList<Statement>(); :} ;
@@ -346,7 +356,7 @@ Statements ::= Statement:s {:
 									RESULT.add(s);
 							:} |
 			   Statements:sl Statement:s {:
-			   								if (s != null)
+			   								if (s != null && sl != null)
 			   									sl.add(s);
 			   								RESULT = sl;
 			   							 :} ;
@@ -388,7 +398,9 @@ IfStatement ::= IF LPAREN Expression:e RPAREN NotVariableDeclarationStatement:s
 				{: RESULT = new If(e, s); :} ;
 
 IfElseStatement ::= IfStatement:is ELSE NotVariableDeclarationStatement:s 
-				{: RESULT = new If(is.getCondition(), is.getOperation(), s); :} ;
+				{: if (is != null)
+						RESULT = new If(is.getCondition(), is.getOperation(), s);
+				:} ;
 
 Expression ::= THIS {: RESULT = new This(getLine(), getColumn()); :} |
 			   NEW CLASS_ID:cid LPAREN RPAREN {: RESULT = new NewClass(getLine(), getColumn(), cid); :} | 
@@ -438,7 +450,9 @@ StaticCall ::= CLASS_ID:cid OP_DOT IDENTIFIER:id LPAREN ExpressionsList:exprs RP
 			   {: RESULT = new StaticCall(getLine(), getColumn(), cid, id, exprs); :} ;
 
 VirtualCall ::= CommonCall:cc {: RESULT = cc; :} |
-				Expression:loc OP_DOT CommonCall:cc {: RESULT = new VirtualCall(cc.getLine(), getColumn(), loc, cc.getName(), cc.getArguments()); :} ;
+				Expression:loc OP_DOT CommonCall:cc {: if (cc != null)
+														RESULT = new VirtualCall(cc.getLine(), getColumn(), loc, cc.getName(), cc.getArguments());
+													:} ;
 
 CommonCall ::= IDENTIFIER:id LPAREN ExpressionsList:exprs RPAREN 
 			   {: RESULT = new VirtualCall(getLine(), getColumn(), id, exprs); :} ;
@@ -447,15 +461,15 @@ ExpressionsList ::= Expressions:exprs {: RESULT = exprs; :} |
 					{: RESULT = new LinkedList<Expression>(); :} |
 					error RPAREN | error COMMA ;
 
-Expressions ::= Expression:e {: RESULT = new LinkedList<Expression>(); RESULT.add(e); :} |
-				Expressions:lst COMMA Expression:e {: lst.add(e); RESULT = lst; :} ;
+Expressions ::= Expression:e {: RESULT = new LinkedList<Expression>(); if (e != null) RESULT.add(e); :} |
+				Expressions:lst COMMA Expression:e {: if (e != null && lst != null) lst.add(e); RESULT = lst; :} ;
 
-ReturnStatement ::= RETURN ReturnBody:val SEMICOLON 
+ReturnStatement ::= RETURN ReturnBody:val  
 					{: if (val == null)
 						RESULT = new Return(getLine(), getColumn());
 					   else
 					   	RESULT = new Return(getLine(), getColumn(), val);
-					:};
+					:} SEMICOLON ;
 
 ReturnBody ::= Expression:e {: RESULT = e; :} | ;
 
