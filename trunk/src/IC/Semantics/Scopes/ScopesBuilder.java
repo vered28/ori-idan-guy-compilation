@@ -48,7 +48,7 @@ public class ScopesBuilder implements Visitor {
 	 * lexicographic order). */
 	private boolean hasLibrary;
 	
-	private ICClass currentICClass = null;
+	private Program program;
 	
 	public ScopesBuilder(String filename, boolean hasLibrary) {
 		this.filename = filename;
@@ -65,9 +65,10 @@ public class ScopesBuilder implements Visitor {
 		Scope scope = new ProgramScope(filename, hasLibrary);
 		program.setEnclosingScope(scope);
 		
+		this.program = program;
+		
 		for (ICClass cls : program.getClasses()) {
 			
-			currentICClass = cls;
 			Scope childScope = (Scope)cls.accept(this);
 			childScope.setParentScope(scope);
 			
@@ -232,8 +233,16 @@ public class ScopesBuilder implements Visitor {
 
 	@Override
 	public Object visit(UserType type) {
-		Type t = new IC.Semantics.Scopes.UserType(type.getName(), currentICClass);
+		
+		ICClass usertype = program.getClassByName(type.getName());
+
+		if (usertype == null) {
+			generateDetailedSemanticError(new Exception("User-type " + type.getName() + " is not defined."), type);
+		}
+		
+		Type t = new IC.Semantics.Scopes.UserType(type.getName(), usertype);
 		t.setDimension(type.getDimension());
+		
 		return t;
 	}
 
