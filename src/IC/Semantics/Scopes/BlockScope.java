@@ -1,6 +1,6 @@
 package IC.Semantics.Scopes;
 
-public class BlockScope extends Scope {
+public class BlockScope extends MethodScope {
 
 	public BlockScope(Scope parent) {
 		super("statement block in " + parent.getID(), parent);

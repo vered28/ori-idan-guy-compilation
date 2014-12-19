@@ -1,6 +1,6 @@
 package IC.Semantics.Scopes;
 
-public class MethodScope extends Scope {
+public class MethodScope extends ClassScope {
 
 	public MethodScope(String id) {
 		super(id);

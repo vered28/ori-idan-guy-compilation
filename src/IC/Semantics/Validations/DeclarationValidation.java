@@ -41,6 +41,8 @@ import IC.AST.VirtualMethod;
 import IC.AST.Visitor;
 import IC.AST.While;
 import IC.Semantics.SemanticError;
+import IC.Semantics.StaticVirtualAmbiguityException;
+import IC.Semantics.Scopes.ClassScope;
 import IC.Semantics.Scopes.Kind;
 import IC.Semantics.Scopes.Scope;
 import IC.Semantics.Scopes.Symbol;
@@ -99,9 +101,21 @@ public class DeclarationValidation implements Visitor {
 		if (scope == null)
 			return null;
 		
-		if (scope.containsSymbol(id)) {
-			if (scope.getSymbol(id).getKind() == kind)
-				return scope.getSymbol(id);
+		try {
+			if (scope.containsSymbol(id)) {
+				if (scope.getSymbol(id).getKind() == kind)
+					return scope.getSymbol(id);
+			}
+		} catch (StaticVirtualAmbiguityException e) {
+			if (kind.equals(Kind.STATICMETHOD)) {
+				Symbol sym = ((ClassScope)scope).getStaticSymbol(id);
+				if (sym != null)
+					return sym;
+			} else if (kind.equals(Kind.VIRTUALMETHOD)) {
+				Symbol sym = ((ClassScope)scope).getSymbol(id, true);
+				if (sym != null)
+					return sym;				
+			}
 		}
 		
 		return findSymbol(id, kind, scope.getParentScope());
@@ -344,6 +358,10 @@ public class DeclarationValidation implements Visitor {
 				
 		Symbol external = null;
 		
+		//virtualMethod flag marks that this call should be treated
+		//as a virtual method call. when set to false, 
+		boolean virtualMethod = true;
+		
 		if (call.isExternal()) {
 			external = (Symbol)call.getLocation().accept(this);
 			if (external.getID().equals("this")) {
@@ -354,17 +372,66 @@ public class DeclarationValidation implements Visitor {
 					throw new SemanticError("'" + external.getID() + "' is not a class variable.",
 							call.getLine(), call.getColumn());				
 			}
+		} else {
+			
+			//this could be a static call reference if there are both a static
+			//and a virtual methods with call.getName() declared in this scope.
+			
+			ClassScope currentScope = (ClassScope)call.getEnclosingScope();
+			Symbol staticSymbol = findSymbol(call.getName(), Kind.STATICMETHOD, currentScope);
+			
+			if (staticSymbol != null) {
+				
+				Symbol virtualSymbol = findSymbol(call.getName(), Kind.VIRTUALMETHOD, currentScope);
+				//if number of arguments is different, but one of them matches
+				//this call's arguments count, choose the one that matches.
+				//otherwise, throw an excpetion:
+				
+				String errorMsg = "Ambigious call to method " + call.getName() +
+						". If you're trying to access a static method, add the class name infront of it (i.e. C.method), "
+						+ "and if you're trying to access a virtual method, use the this keyword (i.e. this.method).";
+				
+				int staticFormalsCount =  ((Method)staticSymbol.getNode())
+						.getFormals().size();
+				int virtualFormalsCount = ((Method)virtualSymbol.getNode())
+						.getFormals().size();
+				
+				if (staticFormalsCount != virtualFormalsCount) {
+					int argumentsSize = call.getArguments().size();
+					if (staticFormalsCount == argumentsSize) {
+						virtualMethod = false;
+					} else if (virtualFormalsCount == argumentsSize) {
+						virtualMethod = true; //set to the same value, don't change
+					} else {
+						throw new SemanticError(errorMsg, call.getLine(), call.getColumn());
+					}
+				} else {
+					throw new SemanticError(errorMsg, call.getLine(), call.getColumn());
+				}
+				
+			}
 		}
 
 		Symbol method =
 			validateDeclaration(call.getName(), call,
-				Kind.VIRTUALMETHOD,
+				virtualMethod ? Kind.VIRTUALMETHOD : Kind.STATICMETHOD,
 				//if external, validate method exists in external scope:
 				(external != null) ?
 						getClassScopeByName(
 								call.getEnclosingScope(),
 								((IC.Semantics.Scopes.UserType)external.getType()).getName()) :
 						call.getEnclosingScope());
+		
+		//check call is legal (supplies as many parameters as needed):
+		int formalsCount = ((Method)method.getNode()).getFormals().size();
+		int argumentsCount = call.getArguments().size();
+		if (formalsCount != argumentsCount) {
+			throw new SemanticError(
+					"method call to '" + method.getID() + "' expects " + formalsCount
+					+ ", supplied " + argumentsCount + ".",
+					call.getLine(),
+					call.getColumn());
+		}
 		
 		for (Expression expr : call.getArguments()) {
 			expr.accept(this);
