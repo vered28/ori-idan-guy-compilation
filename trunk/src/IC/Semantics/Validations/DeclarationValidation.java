@@ -81,10 +81,6 @@ public class DeclarationValidation implements Visitor {
 		return symbol;
 	}
 	
-	private Symbol validateDeclaration(String id, ASTNode node, List<Kind> kinds, Scope scope) {
-		return validateDeclaration(id, node, kinds, scope, false);
-	}
-	
 	private Symbol validateDeclaration(String id, ASTNode node, List<Kind> kinds, Scope scope, boolean onlyCheckInMethodScope) {
 		
 		if (kinds.size() <= 0)
@@ -92,7 +88,7 @@ public class DeclarationValidation implements Visitor {
 		
 		if (kinds.size() == 1) {
 			//better error message for one kind in the validate-only-one method:
-			return validateDeclaration(id, node, kinds.get(0), scope);
+			return validateDeclaration(id, node, kinds.get(0), scope, onlyCheckInMethodScope);
 		}
 		
 		String strKinds = "";
@@ -137,7 +133,7 @@ public class DeclarationValidation implements Visitor {
 			}
 		}
 		
-		return findSymbol(id, kind, scope.getParentScope());
+		return findSymbol(id, kind, scope.getParentScope(), onlyCheckInMethodScope);
 		
 	}
 	
