@@ -42,8 +42,10 @@ import IC.AST.Visitor;
 import IC.AST.While;
 import IC.Semantics.SemanticError;
 import IC.Semantics.StaticVirtualAmbiguityException;
+import IC.Semantics.Scopes.BlockScope;
 import IC.Semantics.Scopes.ClassScope;
 import IC.Semantics.Scopes.Kind;
+import IC.Semantics.Scopes.MethodScope;
 import IC.Semantics.Scopes.Scope;
 import IC.Semantics.Scopes.Symbol;
 
@@ -60,9 +62,18 @@ public class DeclarationValidation implements Visitor {
 	 * 
 	 */
 	
+	//flag is raised when checking validity of statements and their children inside
+	//static methods. Inside static methods, cannot reference class fields, only
+	//local variables and other static methods inside the class.
+	private boolean staticMethod = true;
+	
 	private Symbol validateDeclaration(String id, ASTNode node, Kind kind, Scope scope) {
+		return validateDeclaration(id, node, kind, scope, false);
+	}
+	
+	private Symbol validateDeclaration(String id, ASTNode node, Kind kind, Scope scope, boolean onlyCheckInMethodScope) {
 		
-		Symbol symbol = findSymbol(id, kind, scope);
+		Symbol symbol = findSymbol(id, kind, scope, onlyCheckInMethodScope);
 		
 		if (symbol == null)
 			throw new SemanticError(kind.getValue() + " '" + id + "' hasn't been declared in scope " + scope.getID() + ".", node.getLine(), node.getColumn());
@@ -71,6 +82,10 @@ public class DeclarationValidation implements Visitor {
 	}
 	
 	private Symbol validateDeclaration(String id, ASTNode node, List<Kind> kinds, Scope scope) {
+		return validateDeclaration(id, node, kinds, scope, false);
+	}
+	
+	private Symbol validateDeclaration(String id, ASTNode node, List<Kind> kinds, Scope scope, boolean onlyCheckInMethodScope) {
 		
 		if (kinds.size() <= 0)
 			return null;
@@ -85,7 +100,7 @@ public class DeclarationValidation implements Visitor {
 		
 		for (Kind k : kinds) {
 			strKinds += k.getValue().toLowerCase() + " or ";
-			if ((symbol = findSymbol(id, k, scope)) != null)
+			if ((symbol = findSymbol(id, k, scope, onlyCheckInMethodScope)) != null)
 				return symbol;
 		}
 		
@@ -97,8 +112,12 @@ public class DeclarationValidation implements Visitor {
 	}
 	
 	private Symbol findSymbol(String id, Kind kind, Scope scope) {
+		return findSymbol(id, kind, scope, false);
+	}
+	
+	private Symbol findSymbol(String id, Kind kind, Scope scope, boolean onlyCheckInMethodScope) {
 		
-		if (scope == null)
+		if (scope == null || (onlyCheckInMethodScope && !(scope instanceof MethodScope)))
 			return null;
 		
 		try {
@@ -141,6 +160,18 @@ public class DeclarationValidation implements Visitor {
 		//no class found by that name (Symbol ID), return null:
 		return null;
 	}
+	
+	private Scope getClassScopeOfCurrentScope(Scope currentScope) {
+		
+		if (currentScope == null)
+			return null;
+		
+		if (currentScope instanceof MethodScope
+				&& !(currentScope instanceof BlockScope))
+			return currentScope.getParentScope(); //parent of method is always class
+		
+		return getClassScopeOfCurrentScope(currentScope.getParentScope());
+	}
 		
 	@Override
 	public Object visit(Program program) {
@@ -179,10 +210,17 @@ public class DeclarationValidation implements Visitor {
 
 	@Override
 	public Object visit(StaticMethod method) {
+		
+		staticMethod = true;
+		
 		for (Statement stmt : method.getStatements()) {
 			stmt.accept(this);
 		}
+		
+		staticMethod = false;
+		
 		return null;
+		
 	}
 
 	@Override
@@ -291,27 +329,30 @@ public class DeclarationValidation implements Visitor {
 	public Object visit(VariableLocation location) {
 				
 		Symbol external = null;
+		boolean thisKeyword = false;
 		
 		if (location.isExternal()) {
 			external = (Symbol)location.getLocation().accept(this);
 			if (external.getID().equals("this")) {
-				//not really external...
-				external = null;
+				thisKeyword = true;
 			} else {
 				if (!(external.getType() instanceof IC.Semantics.Scopes.UserType))
 					throw new SemanticError("'" + external.getID() + "' is not a class variable.",
 							location.getLine(), location.getColumn());
 			}
 		}
-				
+		
 		//if valid, return the symbol of the location:
 		return validateDeclaration(location.getName(), location,
 				Arrays.asList(new Kind[] { Kind.VARIABLE, Kind.FORMAL, Kind.FIELD }),
 				//if external, search in external symbol scope, and not in current scope:
 				(external != null) ?
-						getClassScopeByName(location.getEnclosingScope(),
-								((IC.Semantics.Scopes.UserType)external.getType()).getName()) :
-						location.getEnclosingScope());
+						((thisKeyword) ? getClassScopeOfCurrentScope(location.getEnclosingScope())
+										: getClassScopeByName(location.getEnclosingScope(),
+																((IC.Semantics.Scopes.UserType)external.getType()).getName()))
+						: location.getEnclosingScope(),
+				(external == null && this.staticMethod) /* if in static method,
+															only search in method scope (class scope inaccessible) */);
 	}
 
 	@Override
@@ -357,6 +398,7 @@ public class DeclarationValidation implements Visitor {
 	public Object visit(VirtualCall call) {
 				
 		Symbol external = null;
+		boolean thisKeyword = false;
 		
 		//virtualMethod flag marks that this call should be treated
 		//as a virtual method call. when set to false, 
@@ -365,8 +407,7 @@ public class DeclarationValidation implements Visitor {
 		if (call.isExternal()) {
 			external = (Symbol)call.getLocation().accept(this);
 			if (external.getID().equals("this")) {
-				//not really external...
-				external = null;
+				thisKeyword = true;
 			} else {
 				if (!(external.getType() instanceof IC.Semantics.Scopes.UserType))
 					throw new SemanticError("'" + external.getID() + "' is not a class variable.",
@@ -387,40 +428,56 @@ public class DeclarationValidation implements Visitor {
 				//this call's arguments count, choose the one that matches.
 				//otherwise, throw an excpetion:
 				
-				String errorMsg = "Ambigious call to method " + call.getName() +
-						". If you're trying to access a static method, add the class name infront of it (i.e. C.method), "
-						+ "and if you're trying to access a virtual method, use the this keyword (i.e. this.method).";
+				if (virtualSymbol == null) {
+					
+					//this is a static call:
+					virtualMethod = false;
+					
+				} else {
 				
-				int staticFormalsCount =  ((Method)staticSymbol.getNode())
-						.getFormals().size();
-				int virtualFormalsCount = ((Method)virtualSymbol.getNode())
-						.getFormals().size();
-				
-				if (staticFormalsCount != virtualFormalsCount) {
-					int argumentsSize = call.getArguments().size();
-					if (staticFormalsCount == argumentsSize) {
-						virtualMethod = false;
-					} else if (virtualFormalsCount == argumentsSize) {
-						virtualMethod = true; //set to the same value, don't change
+					String errorMsg = "Ambigious call to method " + call.getName() +
+							". If you're trying to access a static method, add the class name infront of it (i.e. C.method), "
+							+ "and if you're trying to access a virtual method, use the this keyword (i.e. this.method).";
+					
+					int staticFormalsCount =  ((Method)staticSymbol.getNode())
+							.getFormals().size();
+					int virtualFormalsCount = ((Method)virtualSymbol.getNode())
+							.getFormals().size();
+					
+					if (staticFormalsCount != virtualFormalsCount) {
+						int argumentsSize = call.getArguments().size();
+						if (staticFormalsCount == argumentsSize) {
+							virtualMethod = false;
+						} else if (virtualFormalsCount == argumentsSize) {
+							virtualMethod = true; //set to the same value, don't change
+						} else {
+							throw new SemanticError(errorMsg, call.getLine(), call.getColumn());
+						}
 					} else {
 						throw new SemanticError(errorMsg, call.getLine(), call.getColumn());
 					}
-				} else {
-					throw new SemanticError(errorMsg, call.getLine(), call.getColumn());
 				}
 				
 			}
 		}
 
+		if (external == null && virtualMethod && this.staticMethod){
+			//cannot call virtual method of this class from within a static
+			//method implementation:
+			throw new SemanticError("cannot call virtual methods from static scope",
+					call.getLine(), call.getColumn());
+		}
+		
 		Symbol method =
 			validateDeclaration(call.getName(), call,
 				virtualMethod ? Kind.VIRTUALMETHOD : Kind.STATICMETHOD,
 				//if external, validate method exists in external scope:
 				(external != null) ?
-						getClassScopeByName(
-								call.getEnclosingScope(),
-								((IC.Semantics.Scopes.UserType)external.getType()).getName()) :
-						call.getEnclosingScope());
+							((thisKeyword) ? getClassScopeOfCurrentScope(call.getEnclosingScope())
+										  : getClassScopeByName(
+												call.getEnclosingScope(),
+												((IC.Semantics.Scopes.UserType)external.getType()).getName()))
+							: call.getEnclosingScope());
 		
 		//check call is legal (supplies as many parameters as needed):
 		int formalsCount = ((Method)method.getNode()).getFormals().size();
@@ -442,7 +499,11 @@ public class DeclarationValidation implements Visitor {
 
 	@Override
 	public Object visit(This thisExpression) {
-		//do nothing
+		if (staticMethod) {
+			//this is a big no-no: cannot access "this" since we are static, not an instance
+			throw new SemanticError("Static class cannot use the this keyword",
+					thisExpression.getLine(), thisExpression.getColumn());
+		}
 		return new Symbol("this", null, null, null);
 	}
 

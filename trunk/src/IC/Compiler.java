@@ -127,7 +127,7 @@ public class Compiler {
 	    			try {
 	    				semantics.run();	    					
 	    			} catch (SemanticError e) {
-	    				System.err.println(e.getMessage());
+	    				System.err.println(e.getLine());
 	    				//e.printStackTrace();
 	    			}
 	    			
