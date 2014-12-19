@@ -7,7 +7,6 @@ import java.util.List;
 
 import java_cup.runtime.Symbol;
 import IC.AST.ICClass;
-import IC.AST.PrettyPrinter;
 import IC.AST.Program;
 import IC.Parser.Lexer;
 import IC.Parser.LexicalError;
@@ -128,7 +127,7 @@ public class Compiler {
 	    			try {
 	    				semantics.run();	    					
 	    			} catch (SemanticError e) {
-	    				System.err.println(e.getLine());
+	    				System.err.println(e.getMessage());
 	    				//e.printStackTrace();
 	    			}
 	    			
