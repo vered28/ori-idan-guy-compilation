@@ -1,6 +1,7 @@
 package IC.AST;
 
 import IC.Semantics.Scopes.Scope;
+import IC.Semantics.Scopes.Type;
 
 /**
  * Abstract AST node base class.
@@ -11,9 +12,8 @@ public abstract class ASTNode {
 
 	private int line;
 	private int column;
-	
-	
 	private Scope enclosingScope;
+	private Type nodeType;
 
 	/**
 	 * Double dispatch method, to allow a visitor to visit a specific subclass.
@@ -50,6 +50,14 @@ public abstract class ASTNode {
 	
 	public Scope getEnclosingScope() {
 		return enclosingScope;
+	}
+	
+	public Type getNodeType() {
+		return nodeType;
+	}
+	
+	public void setNodeType(Type nodeType) {
+		this.nodeType = nodeType;
 	}
 
 }

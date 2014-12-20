@@ -15,6 +15,7 @@ import IC.Parser.Parser;
 import IC.Parser.SyntaxError;
 import IC.Semantics.SemanticChecks;
 import IC.Semantics.SemanticError;
+import IC.Semantics.Scopes.ScopesPrinter;
 
 /**
 * @team Ori_Idan_Guy
@@ -127,13 +128,13 @@ public class Compiler {
 	    			try {
 	    				semantics.run();	    					
 	    			} catch (SemanticError e) {
-	    				System.err.println(e.getLine());
+	    				System.err.println(e.getMessage());
 	    				//e.printStackTrace();
 	    			}
 	    			
 	    			//System.out.println("Parsed " + args[0] + " successfully!");
 	    			//System.out.println(new PrettyPrinter(args[0]).visit((Program) result.value));
-	    			//System.out.println(semantics.getMainScope().accept(new ScopesPrinter()));
+	    			System.out.println(semantics.getMainScope().accept(new ScopesPrinter()));
 	    		}
 	    		
     		} catch (SyntaxError e) {

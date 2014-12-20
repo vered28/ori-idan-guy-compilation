@@ -81,5 +81,26 @@ public class ICClass extends ASTNode {
 	public List<Method> getMethods() {
 		return methods;
 	}
+	
+	public Field getField(String name) {
+		for (Field field : fields) {
+			if (field.getName().equals(name)) {
+				return field;
+			}
+		}
+		return null;
+	}
+	
+	public boolean subClassOf(ICClass icClass) {
+		if (name.equals(icClass.getName())) {
+			return true;
+		}
+		if (hasSuperClass()) {
+			return ((ICClass)getEnclosingScope().
+					getParentScope().getParentScope().getSymbol(
+							superClassName).getNode()).subClassOf(icClass);
+		}
+		return false;
+	}
 
 }
