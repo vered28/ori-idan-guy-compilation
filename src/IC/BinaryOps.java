@@ -7,26 +7,28 @@ package IC;
  */
 public enum BinaryOps {
 
-	PLUS("+", "addition"),
-	MINUS("-", "subtraction"),
-	MULTIPLY("*", "multiplication"),
-	DIVIDE("/", "division"),
-	MOD("%", "modulo"),
-	LAND("&&", "logical and"),
-	LOR("||", "logical or"),
-	LT("<", "less than"),
-	LTE("<=", "less than or equal to"),
-	GT(">", "greater than"),
-	GTE(">=", "greater than or equal to"),
-	EQUAL("==", "equality"),
-	NEQUAL("!=", "inequality");
+	PLUS("+", BinaryOpType.MATH, "addition"),
+	MINUS("-", BinaryOpType.MATH, "subtraction"),
+	MULTIPLY("*", BinaryOpType.MATH, "multiplication"),
+	DIVIDE("/", BinaryOpType.MATH, "division"),
+	MOD("%", BinaryOpType.MATH, "modulo"),
+	LAND("&&", BinaryOpType.LOGICAL, "logical and"),
+	LOR("||", BinaryOpType.LOGICAL, "logical or"),
+	LT("<", BinaryOpType.SIZE_COMPARISON, "less than"),
+	LTE("<=", BinaryOpType.SIZE_COMPARISON, "less than or equal to"),
+	GT(">", BinaryOpType.SIZE_COMPARISON, "greater than"),
+	GTE(">=", BinaryOpType.SIZE_COMPARISON, "greater than or equal to"),
+	EQUAL("==", BinaryOpType.EQUALITY, "equality"),
+	NEQUAL("!=", BinaryOpType.EQUALITY, "inequality");
 	
 	private String operator;
-	
+	private BinaryOpType operationType;
 	private String description;
 
-	private BinaryOps(String operator, String description) {
+	private BinaryOps(String operator, BinaryOpType operationType,
+			String description) {
 		this.operator = operator;
+		this.operationType = operationType;
 		this.description = description;
 	}
 
@@ -46,5 +48,33 @@ public enum BinaryOps {
 	 */
 	public String getDescription() {
 		return description;
+	}
+	
+	public boolean isMathOperation() {
+		return operationType == BinaryOpType.MATH;
+	}
+	
+	public boolean isConcatenationOperation() {
+		return operationType == BinaryOpType.CONCATENATION;
+	}
+	
+	public boolean isEqualityOperation() {
+		return operationType == BinaryOpType.EQUALITY;
+	}
+	
+	public boolean isSizeComparisonOperation() {
+		return operationType == BinaryOpType.SIZE_COMPARISON;
+	}
+	
+	public boolean isLogicalOperation() {
+		return operationType == BinaryOpType.LOGICAL;
+	}
+	
+	private enum BinaryOpType {
+		MATH,
+		CONCATENATION,
+		EQUALITY,
+		SIZE_COMPARISON,
+		LOGICAL;
 	}
 }

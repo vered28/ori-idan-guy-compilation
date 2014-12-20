@@ -6,6 +6,7 @@ import IC.Semantics.Scopes.ScopesBuilder;
 import IC.Semantics.Validations.ControlStatementsValidation;
 import IC.Semantics.Validations.DeclarationValidation;
 import IC.Semantics.Validations.NonCircularScopesValidation;
+import IC.Semantics.Validations.TypesValidation;
 
 public class SemanticChecks {
 
@@ -34,7 +35,8 @@ public class SemanticChecks {
 		//1 - validate scope rules:
 		validateDeclarations();
 		
-		//TODO: 2 - type checking
+		// 2 - type checking
+		validateTypes();
 		
 		//TODO: 3 - single main check (can be done only after type checking)
 		
@@ -62,6 +64,10 @@ public class SemanticChecks {
 	
 	private void validateControlStatements() {
 		program.accept(new ControlStatementsValidation());
+	}
+	
+	private void validateTypes() {
+		program.accept(new TypesValidation());
 	}
 	
 }

@@ -1,7 +1,10 @@
 package IC.Semantics;
 
+import IC.AST.ASTNode;
+
 public class SemanticError extends RuntimeException {
 	
+	private static final long serialVersionUID = 7375323872600029402L;
 	private final String type = "semantic error";
 	private int line;
 	private int column;
@@ -11,9 +14,13 @@ public class SemanticError extends RuntimeException {
 	}
 	
 	public SemanticError(String msg, int line, int column) {
-		super(msg);
+		super(msg + " in line " + line);
 		this.line = line;
 		this.column = column;
+	}
+	
+	public SemanticError(String message, ASTNode node) {
+		this(message, node.getLine(), node.getColumn());
 	}
 
 	public String getType() {
