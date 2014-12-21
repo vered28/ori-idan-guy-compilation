@@ -1,4 +1,4 @@
-package IC.Semantics;
+package IC.Semantics.Exceptions;
 
 import IC.AST.ASTNode;
 
@@ -14,7 +14,7 @@ public class SemanticError extends RuntimeException {
 	}
 	
 	public SemanticError(String msg, int line, int column) {
-		super(msg + " in line " + line);
+		super(msg);
 		this.line = line;
 		this.column = column;
 	}

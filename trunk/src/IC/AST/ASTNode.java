@@ -1,7 +1,7 @@
 package IC.AST;
 
 import IC.Semantics.Scopes.Scope;
-import IC.Semantics.Scopes.Type;
+import IC.Semantics.Types.Type;
 
 /**
  * Abstract AST node base class.

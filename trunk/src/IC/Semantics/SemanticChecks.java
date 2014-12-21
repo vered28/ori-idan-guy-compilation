@@ -2,16 +2,18 @@ package IC.Semantics;
 
 import IC.AST.Program;
 import IC.Semantics.Scopes.ProgramScope;
-import IC.Semantics.Scopes.ScopesBuilder;
+import IC.Semantics.Types.TypeTable;
 import IC.Semantics.Validations.ControlStatementsValidation;
 import IC.Semantics.Validations.DeclarationValidation;
 import IC.Semantics.Validations.NonCircularScopesValidation;
+import IC.Semantics.Validations.SingleMainValidation;
 import IC.Semantics.Validations.TypesValidation;
 
 public class SemanticChecks {
 
 	private Program program;
-	private ProgramScope mainScope;
+	private ProgramScope globalScope;
+	private TypeTable typeTable;
 	
 	private String filename;
 	private boolean hasLibrary;
@@ -24,8 +26,8 @@ public class SemanticChecks {
 	
 	public void run() {
 		
-		//build symbol tables (scope instance for each scope):
-		mainScope = buildScopes();
+		//build symbol (scope instance for each scope) and type tables :
+		buildScopesAndTypes();
 		
 		//check that scopes graph is not circular:
 		validateNotCircular();
@@ -38,24 +40,31 @@ public class SemanticChecks {
 		// 2 - type checking
 		validateTypes();
 		
-		//TODO: 3 - single main check (can be done only after type checking)
+		//3 - single main check (can be done only after type checking)
+		validateSingleMain();
 		
 		//4+5 - validate control statements (break / continue / this):
 		validateControlStatements();
 		
 	}
 	
-	public ProgramScope getMainScope() {
-		return mainScope;
+	public ProgramScope getGlobalScope() {
+		return globalScope;
 	}
 	
-	private ProgramScope buildScopes() {
-		return (ProgramScope)program.accept(
-				new ScopesBuilder(filename, hasLibrary));
+	public TypeTable getTypeTable() {
+		return typeTable;
+	}
+	
+	private void buildScopesAndTypes() {
+		ScopesTypesWrapper wrapper = (ScopesTypesWrapper)program.accept(
+				new ScopesTypesBuilder(filename, hasLibrary));
+		typeTable = wrapper.getTypeTable();
+		globalScope = wrapper.getGlobalScope();
 	}
 	
 	private void validateNotCircular() {
-		mainScope.accept(new NonCircularScopesValidation());
+		globalScope.accept(new NonCircularScopesValidation());
 	}
 	
 	private void validateDeclarations() {
@@ -67,7 +76,11 @@ public class SemanticChecks {
 	}
 	
 	private void validateTypes() {
-		program.accept(new TypesValidation());
+		program.accept(new TypesValidation(typeTable));
+	}
+	
+	private void validateSingleMain() {
+		program.accept(new SingleMainValidation());
 	}
 	
 }

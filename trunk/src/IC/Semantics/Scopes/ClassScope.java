@@ -7,7 +7,7 @@ import java.util.List;
 import java.util.Map;
 
 import IC.AST.ASTNode;
-import IC.Semantics.StaticVirtualAmbiguityException;
+import IC.Semantics.Exceptions.StaticVirtualAmbiguityException;
 
 public class ClassScope extends Scope {
 	

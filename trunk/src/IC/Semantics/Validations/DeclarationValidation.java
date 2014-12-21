@@ -40,12 +40,9 @@ import IC.AST.VirtualCall;
 import IC.AST.VirtualMethod;
 import IC.AST.Visitor;
 import IC.AST.While;
-import IC.Semantics.SemanticError;
-import IC.Semantics.StaticVirtualAmbiguityException;
-import IC.Semantics.Scopes.BlockScope;
+import IC.Semantics.Exceptions.SemanticError;
 import IC.Semantics.Scopes.ClassScope;
 import IC.Semantics.Scopes.Kind;
-import IC.Semantics.Scopes.MethodScope;
 import IC.Semantics.Scopes.Scope;
 import IC.Semantics.Scopes.Symbol;
 
@@ -65,15 +62,16 @@ public class DeclarationValidation implements Visitor {
 	//flag is raised when checking validity of statements and their children inside
 	//static methods. Inside static methods, cannot reference class fields, only
 	//local variables and other static methods inside the class.
-	private boolean staticMethod = true;
-	
+	private boolean staticMethod = false;
+		
 	private Symbol validateDeclaration(String id, ASTNode node, Kind kind, Scope scope) {
 		return validateDeclaration(id, node, kind, scope, false);
 	}
 	
 	private Symbol validateDeclaration(String id, ASTNode node, Kind kind, Scope scope, boolean onlyCheckInMethodScope) {
 		
-		Symbol symbol = findSymbol(id, kind, scope, onlyCheckInMethodScope);
+		Symbol symbol = CommonValidations.findSymbol(
+				id, kind, scope, onlyCheckInMethodScope);
 		
 		if (symbol == null)
 			throw new SemanticError(kind.getValue() + " '" + id + "' hasn't been declared in scope " + scope.getID() + ".", node.getLine(), node.getColumn());
@@ -81,7 +79,7 @@ public class DeclarationValidation implements Visitor {
 		return symbol;
 	}
 	
-	private Symbol validateDeclaration(String id, ASTNode node, List<Kind> kinds, Scope scope, boolean onlyCheckInMethodScope) {
+	private Symbol validateDeclaration(String id, ASTNode node, List<Kind> kinds, Scope scope, int aboveLine, boolean onlyCheckInMethodScope) {
 		
 		if (kinds.size() <= 0)
 			return null;
@@ -96,7 +94,7 @@ public class DeclarationValidation implements Visitor {
 		
 		for (Kind k : kinds) {
 			strKinds += k.getValue().toLowerCase() + " or ";
-			if ((symbol = findSymbol(id, k, scope, onlyCheckInMethodScope)) != null)
+			if ((symbol = CommonValidations.findSymbol(id, k, scope, aboveLine, onlyCheckInMethodScope)) != null)
 				return symbol;
 		}
 		
@@ -105,68 +103,6 @@ public class DeclarationValidation implements Visitor {
 						+ strKinds.substring(0, strKinds.length() - " or ".length())
 						+ " in scope " + scope.getID() + ".",
 				node.getLine(), node.getColumn());
-	}
-	
-	private Symbol findSymbol(String id, Kind kind, Scope scope) {
-		return findSymbol(id, kind, scope, false);
-	}
-	
-	private Symbol findSymbol(String id, Kind kind, Scope scope, boolean onlyCheckInMethodScope) {
-		
-		if (scope == null || (onlyCheckInMethodScope && !(scope instanceof MethodScope)))
-			return null;
-		
-		try {
-			if (scope.containsSymbol(id)) {
-				if (scope.getSymbol(id).getKind() == kind)
-					return scope.getSymbol(id);
-			}
-		} catch (StaticVirtualAmbiguityException e) {
-			if (kind.equals(Kind.STATICMETHOD)) {
-				Symbol sym = ((ClassScope)scope).getStaticSymbol(id);
-				if (sym != null)
-					return sym;
-			} else if (kind.equals(Kind.VIRTUALMETHOD)) {
-				Symbol sym = ((ClassScope)scope).getSymbol(id, true);
-				if (sym != null)
-					return sym;				
-			}
-		}
-		
-		return findSymbol(id, kind, scope.getParentScope(), onlyCheckInMethodScope);
-		
-	}
-	
-	private Scope getClassScopeByName(Scope currentScope, String className) {
-		
-		//run current until root (ProgramScope):
-		while (currentScope.getParentScope() != null) {
-			currentScope = currentScope.getParentScope();
-		}
-		
-		//run over all symbols (all program classes) and return
-		//scope of class with given ID className:
-		for (Symbol symbol : currentScope.getSymbols()) {
-			if (symbol.getKind() == Kind.CLASS) { //all should be classes, but make sure anyway
-				if (symbol.getID().equals(className))
-					return symbol.getNode().getEnclosingScope();
-			}
-		}
-		
-		//no class found by that name (Symbol ID), return null:
-		return null;
-	}
-	
-	private Scope getClassScopeOfCurrentScope(Scope currentScope) {
-		
-		if (currentScope == null)
-			return null;
-		
-		if (currentScope instanceof MethodScope
-				&& !(currentScope instanceof BlockScope))
-			return currentScope.getParentScope(); //parent of method is always class
-		
-		return getClassScopeOfCurrentScope(currentScope.getParentScope());
 	}
 		
 	@Override
@@ -180,8 +116,9 @@ public class DeclarationValidation implements Visitor {
 	@Override
 	public Object visit(ICClass icClass) {
 		
-		//no need to visit fields (cannot be initialized and therefore
-		//cannot call any other field / variable or method).
+		for (Field field : icClass.getFields()) {
+			field.accept(this);
+		}
 		
 		for (Method method : icClass.getMethods()) {
 			method.accept(this);
@@ -192,12 +129,69 @@ public class DeclarationValidation implements Visitor {
 
 	@Override
 	public Object visit(Field field) {
-		//do nothing
+		
+		//fields cannot be initialized so not a lot to check here.
+		//the only potential problem is if field is defined twice,
+		//once in base class and once in drive class.
+		//----------------------------------------------------------
+		//regular insertion to scope already checks same field isn't
+		//added twice to the same scope.
+		
+		ClassScope currentScope = (ClassScope)field.getEnclosingScope();
+		if (currentScope.getParentScope() instanceof ClassScope) {
+			
+			//class extends another class - potential for field overloading:
+			
+			Symbol field2 = CommonValidations.findSymbol(
+					field.getName(), Kind.FIELD, currentScope.getParentScope());
+			
+			if (field2 != null) {
+				throw new SemanticError("field '" + field.getName() + "' cannot be declared "
+						+ "in class " + currentScope.getID() + " because it overloads "
+						+ "field in super class.",
+						field.getLine(), field.getColumn());
+			}
+		}
+
+		//nothing to return
 		return null;
 	}
 
+	private void checkLegalOverride(Method method, boolean isStatic) {
+		
+		ClassScope scope = (ClassScope)method.getEnclosingScope().getParentScope();
+		if (scope.getParentScope() instanceof ClassScope) {
+			
+			//method is defined within a derive class, it may be an override.
+			//an override is only legal if it does not change the original
+			//method's signature. We'll only check number of formals here.
+			//in TypeValidation we'll check for correct types.
+			
+			Symbol originalMethod = CommonValidations.findSymbol(method.getName(),
+					isStatic ? Kind.STATICMETHOD : Kind.VIRTUALMETHOD,
+					scope.getParentScope());
+			
+			if (originalMethod != null) {
+				
+				//we've found a method with the same name in a super class
+				//(searched from parent higher). check number of formals
+				//match:
+				
+				if (((Method)originalMethod.getNode()).getFormals().size()
+						!= method.getFormals().size()) {
+					throw new SemanticError("method '" + method.getName() + "' override in class " + scope.getID() 
+							+ " is illegal due to a different number of formals.",
+							method.getLine(), method.getColumn());
+				}
+				
+			}
+		}
+		
+	}
+	
 	@Override
 	public Object visit(VirtualMethod method) {
+		checkLegalOverride(method, false);
 		for (Statement stmt : method.getStatements()) {
 			stmt.accept(this);
 		}
@@ -206,6 +200,8 @@ public class DeclarationValidation implements Visitor {
 
 	@Override
 	public Object visit(StaticMethod method) {
+		
+		checkLegalOverride(method, true);
 		
 		staticMethod = true;
 		
@@ -241,7 +237,7 @@ public class DeclarationValidation implements Visitor {
 	public Object visit(UserType type) {
 
 		//check that type has been declared (there exists a class type.getName()):
-		if (getClassScopeByName(
+		if (CommonValidations.getClassScopeByName(
 				type.getEnclosingScope(), type.getName()) == null) {
 			throw new SemanticError("'" + type.getName()
 					+ "' class has not been declared.",
@@ -268,7 +264,8 @@ public class DeclarationValidation implements Visitor {
 
 	@Override
 	public Object visit(Return returnStatement) {
-		returnStatement.getValue().accept(this);
+		if (returnStatement.hasValue())
+			returnStatement.getValue().accept(this);
 		return null;
 	}
 
@@ -332,7 +329,7 @@ public class DeclarationValidation implements Visitor {
 			if (external.getID().equals("this")) {
 				thisKeyword = true;
 			} else {
-				if (!(external.getType() instanceof IC.Semantics.Scopes.UserType))
+				if (!(external.getType() instanceof IC.Semantics.Types.UserType))
 					throw new SemanticError("'" + external.getID() + "' is not a class variable.",
 							location.getLine(), location.getColumn());
 			}
@@ -343,19 +340,53 @@ public class DeclarationValidation implements Visitor {
 				Arrays.asList(new Kind[] { Kind.VARIABLE, Kind.FORMAL, Kind.FIELD }),
 				//if external, search in external symbol scope, and not in current scope:
 				(external != null) ?
-						((thisKeyword) ? getClassScopeOfCurrentScope(location.getEnclosingScope())
-										: getClassScopeByName(location.getEnclosingScope(),
-																((IC.Semantics.Scopes.UserType)external.getType()).getName()))
+						((thisKeyword) ? CommonValidations.getClassScopeOfCurrentScope(location.getEnclosingScope())
+										: CommonValidations.getClassScopeByName(location.getEnclosingScope(),
+																((IC.Semantics.Types.UserType)external.getType()).getName()))
 						: location.getEnclosingScope(),
+				location.getLine(),
 				(external == null && this.staticMethod) /* if in static method,
 															only search in method scope (class scope inaccessible) */);
 	}
 
 	@Override
 	public Object visit(ArrayLocation location) {
+		
 		Symbol symbol = (Symbol)location.getArray().accept(this);
+		
+		//if symbol is null, then this is probably an array initialization.
+		//check legality at type checking phase, not here.
+		
+		if (symbol != null) {
+			//check that location call is with accordance to array dimensions
+			//(so that is array is for example 2-dimensional, we don't call [x][y][z]).
+			if (location.getArray() instanceof ArrayLocation) {
+
+				int countDimensions = 1;
+				ArrayLocation array = (ArrayLocation)location.getArray();
+				
+				while (array != null) {
+				
+					if (!(array.getArray() instanceof ArrayLocation))
+						break;
+					
+					array = (ArrayLocation)array.getArray();
+					countDimensions++;
+				}
+				
+				//add one to countDimensions because the last dimension location
+				//is not counted (is probably a VariableLocation).
+				if (countDimensions + 1 > symbol.getType().getDimension())
+					throw new SemanticError(symbol.getID() + " only has "
+												+ symbol.getType().getDimension() + " dimensions.",
+											location.getLine(), location.getColumn());
+			}
+		}
+
+		
 		location.getIndex().accept(this);
 		return symbol;
+		
 	}
 
 	@Override
@@ -367,7 +398,7 @@ public class DeclarationValidation implements Visitor {
 		Symbol method =
 			validateDeclaration(call.getName(), call,
 				Kind.STATICMETHOD,
-				getClassScopeByName(call.getEnclosingScope(),
+				CommonValidations.getClassScopeByName(call.getEnclosingScope(),
 										call.getClassName())
 				);
 		
@@ -377,7 +408,7 @@ public class DeclarationValidation implements Visitor {
 		if (formalsCount != argumentsCount) {
 			throw new SemanticError(
 					"method call to '" + method.getID() + "' expects " + formalsCount
-					+ ", supplied " + argumentsCount + ".",
+					+ " parameters, supplied " + argumentsCount + ".",
 					call.getLine(),
 					call.getColumn());
 		}
@@ -397,7 +428,8 @@ public class DeclarationValidation implements Visitor {
 		boolean thisKeyword = false;
 		
 		//virtualMethod flag marks that this call should be treated
-		//as a virtual method call. when set to false, 
+		//as a virtual method call. when set to false, it is treated
+		//as a static call.
 		boolean virtualMethod = true;
 		
 		if (call.isExternal()) {
@@ -405,21 +437,21 @@ public class DeclarationValidation implements Visitor {
 			if (external.getID().equals("this")) {
 				thisKeyword = true;
 			} else {
-				if (!(external.getType() instanceof IC.Semantics.Scopes.UserType))
+				if (!(external.getType() instanceof IC.Semantics.Types.UserType))
 					throw new SemanticError("'" + external.getID() + "' is not a class variable.",
 							call.getLine(), call.getColumn());				
 			}
 		} else {
 			
 			//this could be a static call reference if there are both a static
-			//and a virtual methods with call.getName() declared in this scope.
+			//and a virtual method with call.getName() declared in this scope.
 			
 			ClassScope currentScope = (ClassScope)call.getEnclosingScope();
-			Symbol staticSymbol = findSymbol(call.getName(), Kind.STATICMETHOD, currentScope);
+			Symbol staticSymbol = CommonValidations.findSymbol(call.getName(), Kind.STATICMETHOD, currentScope);
 			
 			if (staticSymbol != null) {
 				
-				Symbol virtualSymbol = findSymbol(call.getName(), Kind.VIRTUALMETHOD, currentScope);
+				Symbol virtualSymbol = CommonValidations.findSymbol(call.getName(), Kind.VIRTUALMETHOD, currentScope);
 				//if number of arguments is different, but one of them matches
 				//this call's arguments count, choose the one that matches.
 				//otherwise, throw an excpetion:
@@ -469,10 +501,10 @@ public class DeclarationValidation implements Visitor {
 				virtualMethod ? Kind.VIRTUALMETHOD : Kind.STATICMETHOD,
 				//if external, validate method exists in external scope:
 				(external != null) ?
-							((thisKeyword) ? getClassScopeOfCurrentScope(call.getEnclosingScope())
-										  : getClassScopeByName(
+							((thisKeyword) ? CommonValidations.getClassScopeOfCurrentScope(call.getEnclosingScope())
+										  : CommonValidations.getClassScopeByName(
 												call.getEnclosingScope(),
-												((IC.Semantics.Scopes.UserType)external.getType()).getName()))
+												((IC.Semantics.Types.UserType)external.getType()).getName()))
 							: call.getEnclosingScope());
 		
 		//check call is legal (supplies as many parameters as needed):
@@ -481,7 +513,7 @@ public class DeclarationValidation implements Visitor {
 		if (formalsCount != argumentsCount) {
 			throw new SemanticError(
 					"method call to '" + method.getID() + "' expects " + formalsCount
-					+ ", supplied " + argumentsCount + ".",
+					+ " parameters, supplied " + argumentsCount + ".",
 					call.getLine(),
 					call.getColumn());
 		}

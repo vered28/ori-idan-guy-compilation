@@ -1,25 +1,27 @@
-package IC.Semantics.Scopes;
+package IC.Semantics.Types;
+
+import IC.Semantics.Scopes.ScopesVisitor;
 
 public abstract class Type {
 
-	//not much different than AST's Type nodes. Created as enum here
-	//for better separation and abstraction between sub-packages.
+	//not much different than AST's Type nodes. Created here for
+	//better separation and abstraction between sub-packages.
 
 	//one of the visitors' accept() links between AST type and SymbolTable type.
-
+	
 	public abstract Object accept(ScopesVisitor visitor);
 
 	public abstract Object accept(ScopesVisitor visitor, IC.AST.Type type);
+	
+	//we use clone() because type table holds a single copy of
+	//each type. however, during checks and traversing, we may
+	//request an int from the table only to change its' dimension
+	//during traversal. We don't want this to affect other types,
+	//statements, expressions and so on.
+	@Override
+	public abstract Type clone();
 
 	public abstract String getName();
-
-	public abstract boolean isBoolean();
-
-	public abstract boolean isInteger();
-
-	public abstract boolean isString();
-
-	public abstract boolean isVoid();
 
 	public abstract boolean subTypeOf(Type otherType);
 
@@ -41,5 +43,8 @@ public abstract class Type {
 	public boolean equals(Object obj) {
 		return getDimension() == ((Type)obj).getDimension();
 	}
+	
+	//optional for override
+	public void setName(String name) { }
 
 }
