@@ -1,5 +1,8 @@
-package IC.Semantics.Scopes;
+package IC.Semantics;
 
+import java.util.ArrayList;
+
+import IC.DataTypes;
 import IC.AST.ASTNode;
 import IC.AST.ArrayLocation;
 import IC.AST.Assignment;
@@ -37,9 +40,19 @@ import IC.AST.VirtualCall;
 import IC.AST.VirtualMethod;
 import IC.AST.Visitor;
 import IC.AST.While;
-import IC.Semantics.SemanticError;
+import IC.Semantics.Exceptions.SemanticError;
+import IC.Semantics.Scopes.BlockScope;
+import IC.Semantics.Scopes.ClassScope;
+import IC.Semantics.Scopes.Kind;
+import IC.Semantics.Scopes.MethodScope;
+import IC.Semantics.Scopes.ProgramScope;
+import IC.Semantics.Scopes.Scope;
+import IC.Semantics.Scopes.Symbol;
+import IC.Semantics.Types.MethodType;
+import IC.Semantics.Types.Type;
+import IC.Semantics.Types.TypeTable;
 
-public class ScopesBuilder implements Visitor {
+public class ScopesTypesBuilder implements Visitor {
 
 	private String filename;
 	
@@ -49,23 +62,55 @@ public class ScopesBuilder implements Visitor {
 	private boolean hasLibrary;
 	
 	private Program program;
+	private TypeTable typeTable;
 	
-	public ScopesBuilder(String filename, boolean hasLibrary) {
+	public ScopesTypesBuilder(String filename, boolean hasLibrary) {
 		this.filename = filename;
 		this.hasLibrary = hasLibrary;
+		this.typeTable = new TypeTable(filename);
 	}
 	
 	private void generateDetailedSemanticError(Exception e, ASTNode node) {
 		throw new SemanticError(e.getMessage(), node.getLine(), node.getColumn());
 	}
 	
+	private void addPrimitiveTypes() {
+		for (DataTypes dataType : DataTypes.values()) {
+			typeTable.putPrimitive(dataType.getDescription(), dataType);
+		}
+	}
+	
+	//every valid IC program must have a main method - add it to the type table:
+	private void addMainMethodSignature() {
+		
+		//DISCLAIMER: ugly up ahead, but is done to best match example printing :(
+		
+		//add type string[] of formal:
+		Type type = new IC.Semantics.Types.PrimitiveType(DataTypes.STRING);
+		type.setDimension(1);
+		typeTable.put(type.getName() + "[]", type);
+		
+		//add method of void main(string[])
+		PrimitiveType returnType = new PrimitiveType(0, 0, DataTypes.VOID);
+		PrimitiveType formalType = new PrimitiveType(0, 0, DataTypes.STRING);
+		formalType.incrementDimension();
+		ArrayList<Formal> formals = new ArrayList<Formal>();
+		formals.add(new Formal(formalType, ""));
+		StaticMethod method = new StaticMethod(returnType, "main", formals, null);
+		typeTable.put(new MethodType(method));
+		
+	}
+	
 	@Override
 	public Object visit(Program program) {
 		
-		Scope scope = new ProgramScope(filename, hasLibrary);
+		ProgramScope scope = new ProgramScope(filename, hasLibrary);
 		program.setEnclosingScope(scope);
 		
 		this.program = program;
+		
+		addPrimitiveTypes();
+		addMainMethodSignature();
 		
 		for (ICClass cls : program.getClasses()) {
 			
@@ -74,7 +119,7 @@ public class ScopesBuilder implements Visitor {
 			
 			try {
 				scope.addToScope(new Symbol(cls.getName(),
-						new IC.Semantics.Scopes.UserType(cls.getName(), cls),
+						new IC.Semantics.Types.UserType(cls.getName(), cls),
 						Kind.CLASS,
 						cls));
 			} catch (Exception e) {
@@ -104,7 +149,7 @@ public class ScopesBuilder implements Visitor {
 			
 		}
 		
-		return scope;
+		return new ScopesTypesWrapper(typeTable, scope);
 	}
 
 	@Override
@@ -112,6 +157,10 @@ public class ScopesBuilder implements Visitor {
 		
 		Scope scope = new ClassScope(icClass.getName(), icClass);
 		icClass.setEnclosingScope(scope);
+		
+		//add class to type table:
+		typeTable.putClassType(icClass.getName(),
+				new IC.Semantics.Types.UserType(icClass.getName(), icClass));
 		
 		for (Field f : icClass.getFields()) {
 			f.setEnclosingScope(scope);
@@ -132,18 +181,20 @@ public class ScopesBuilder implements Visitor {
 	@Override
 	public Object visit(Field field) {
 		
+		field.getType().setEnclosingScope(field.getEnclosingScope());
+		
 		try {
 			
 			field.getEnclosingScope().addToScope(
 					new Symbol(field.getName(),
-							(Type)field.getType().accept(this),
+							(Type)field.getType().accept(this), //will add to type table
 							Kind.FIELD,
 							field));
 			
 		} catch (Exception e) {
 			generateDetailedSemanticError(e, field);
 		}
-		
+				
 		return null;//field returns nothing
 	}
 	
@@ -154,6 +205,8 @@ public class ScopesBuilder implements Visitor {
 		//overriding enclosing scope to be new scope, now that
 		//you've extracted the class scope:
 		method.setEnclosingScope(scope);
+		
+		method.getType().setEnclosingScope(method.getEnclosingScope());
 		
 		//add yourself to class scope:
 		try {
@@ -179,6 +232,9 @@ public class ScopesBuilder implements Visitor {
 			stmt.accept(this);
 		}
 		
+		//add method to type table:
+		typeTable.put(new MethodType(method));
+		
 		return scope;
 
 	}
@@ -203,11 +259,13 @@ public class ScopesBuilder implements Visitor {
 	@Override
 	public Object visit(Formal formal) {
 		
+		formal.getType().setEnclosingScope(formal.getEnclosingScope());
+		
 		try {
 			
 			formal.getEnclosingScope().addToScope(
 					new Symbol(formal.getName(),
-							(Type)formal.getType().accept(this),
+							(Type)formal.getType().accept(this), //will add to type table
 							Kind.FORMAL,
 							formal));
 			
@@ -222,10 +280,25 @@ public class ScopesBuilder implements Visitor {
 	public Object visit(PrimitiveType type) {
 		
 		//map AST's primitive types to scope type:
-		Type t = new IC.Semantics.Scopes.PrimitiveType(type.getPrimitiveType());
+		Type t = new IC.Semantics.Types.PrimitiveType(type.getPrimitiveType());
 
-		if (t != null)
-			t.setDimension(type.getDimension());
+		if (t != null) {
+			if (type.getDimension() > 0) {
+				
+				t.setDimension(type.getDimension());
+
+				String brackets = "";
+				for (int i = 0; i < type.getDimension(); i++) { 
+					brackets += "[]";
+				}
+				
+				typeTable.put(t.getName() + brackets, t);
+				
+			} else {
+				//all primitives types were initially added to the
+				//types table, so there's nothing to add here :)
+			}
+		}
 		
 		//in reality, will never return null (Parser sets type to be one of the above)
 		return t;
@@ -239,11 +312,27 @@ public class ScopesBuilder implements Visitor {
 		if (usertype == null) {
 			generateDetailedSemanticError(new Exception("User-type " + type.getName() + " is not defined."), type);
 		}
+
+		String brackets = "";
+		for (int i = 0; i < type.getDimension(); i++) { 
+			brackets += "[]";
+		}
+
+		Type t = new IC.Semantics.Types.UserType(type.getName() + brackets, usertype);
+		if (type.getDimension() > 0) {
+			t.setDimension(type.getDimension());
+			typeTable.put(t.getName(), t);
+		} else {
+			typeTable.putClassType(t.getName(),
+					new IC.Semantics.Types.UserType(t.getName(),
+							program.getClassByName(type.getName())));
+		}
 		
-		Type t = new IC.Semantics.Scopes.UserType(type.getName(), usertype);
-		t.setDimension(type.getDimension());
-		
-		return t;
+		//result type should be the class name, without the brackets
+		//(helpful in scope searches / lookups later on)
+		Type resultType = new IC.Semantics.Types.UserType(type.getName(), usertype);
+		resultType.setDimension(type.getDimension());
+		return resultType;
 	}
 
 	@Override
@@ -349,11 +438,14 @@ public class ScopesBuilder implements Visitor {
 	@Override
 	public Object visit(LocalVariable localVariable) {
 
+		localVariable.getType().setEnclosingScope(
+				localVariable.getEnclosingScope());
+		
 		try {
 			
 			localVariable.getEnclosingScope().addToScope(
 					new Symbol(localVariable.getName(),
-							(Type)localVariable.getType().accept(this),
+							(Type)localVariable.getType().accept(this), //will add to type table
 							Kind.VARIABLE,
 							localVariable));
 			

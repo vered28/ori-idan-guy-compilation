@@ -1,6 +1,8 @@
-package IC.Semantics.Scopes;
+package IC.Semantics.Types;
 
+import IC.DataTypes;
 import IC.AST.ICClass;
+import IC.Semantics.Scopes.ScopesVisitor;
 
 public class UserType extends Type {
 
@@ -32,8 +34,20 @@ public class UserType extends Type {
 	}
 	
 	@Override
+	public void setName(String name) {
+		this.name = name;
+	}
+	
+	@Override
 	public String toString() {
 		return name;
+	}
+	
+	@Override
+	public UserType clone() {
+		UserType newType = new UserType(name, usertype);
+		newType.setDimension(getDimension());
+		return newType;
 	}
 	
 	@Override
@@ -51,29 +65,15 @@ public class UserType extends Type {
 
 	@Override
 	public boolean subTypeOf(Type otherType) {
-		if (otherType instanceof UserType) {
+		if (otherType instanceof PrimitiveType) {
+			if (((PrimitiveType)otherType).getType() == DataTypes.NULL) {
+				//everything is derived from null
+				return true;
+			}
+		} else if (otherType instanceof UserType) {
 			return usertype.subClassOf(((UserType)otherType).getClassNode());
 		}
 		return false;
 	}
-
-	@Override
-	public boolean isBoolean() {
-		return false;
-	}
-
-	@Override
-	public boolean isInteger() {
-		return false;
-	}
-
-	@Override
-	public boolean isString() {
-		return false;
-	}
-
-	@Override
-	public boolean isVoid() {
-		return false;
-	}
+	
 }

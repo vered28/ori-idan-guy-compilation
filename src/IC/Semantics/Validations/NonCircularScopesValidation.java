@@ -6,16 +6,17 @@ import java.util.Map;
 
 import IC.AST.ICClass;
 import IC.AST.Type;
-import IC.Semantics.SemanticError;
+import IC.Semantics.Exceptions.SemanticError;
 import IC.Semantics.Scopes.BlockScope;
 import IC.Semantics.Scopes.ClassScope;
 import IC.Semantics.Scopes.MethodScope;
-import IC.Semantics.Scopes.PrimitiveType;
 import IC.Semantics.Scopes.ProgramScope;
 import IC.Semantics.Scopes.Scope;
 import IC.Semantics.Scopes.ScopesVisitor;
 import IC.Semantics.Scopes.Symbol;
-import IC.Semantics.Scopes.UserType;
+import IC.Semantics.Types.MethodType;
+import IC.Semantics.Types.PrimitiveType;
+import IC.Semantics.Types.UserType;
 
 public class NonCircularScopesValidation implements ScopesVisitor {
 
@@ -127,6 +128,12 @@ public class NonCircularScopesValidation implements ScopesVisitor {
 
 	@Override
 	public Object visit(Type type) {
+		//do nothing
+		return null;
+	}
+
+	@Override
+	public Object visit(MethodType type) {
 		//do nothing
 		return null;
 	}

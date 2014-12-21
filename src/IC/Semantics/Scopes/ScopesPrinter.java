@@ -2,6 +2,9 @@ package IC.Semantics.Scopes;
 
 import IC.AST.Formal;
 import IC.AST.Method;
+import IC.Semantics.Types.MethodType;
+import IC.Semantics.Types.PrimitiveType;
+import IC.Semantics.Types.UserType;
 
 public class ScopesPrinter implements ScopesVisitor {
 
@@ -54,7 +57,9 @@ public class ScopesPrinter implements ScopesVisitor {
 			output.append(scope.accept(this));
 		}
 		
-		return output.toString();
+		System.out.println(output.toString());
+		
+		return null;
 		
 	}
 
@@ -203,6 +208,12 @@ public class ScopesPrinter implements ScopesVisitor {
 		}
 		
 		return output;
+	}
+
+	@Override
+	public Object visit(MethodType type) {
+		//do nothing (this is never called for printing!)
+		return null;
 	}
 
 }

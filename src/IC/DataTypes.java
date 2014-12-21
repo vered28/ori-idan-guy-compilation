@@ -9,6 +9,7 @@ public enum DataTypes {
 
 	INT(0, "int"), 
 	BOOLEAN(false, "boolean"), 
+	NULL(null, "null"),
 	STRING(null, "string"), 
 	VOID(null, "void");
 	

@@ -1,6 +1,7 @@
-package IC.Semantics.Scopes;
+package IC.Semantics.Types;
 
 import IC.DataTypes;
+import IC.Semantics.Scopes.ScopesVisitor;
 
 public class PrimitiveType extends Type {
 
@@ -35,6 +36,13 @@ public class PrimitiveType extends Type {
 	}
 
 	@Override
+	public PrimitiveType clone() {
+		PrimitiveType newType = new PrimitiveType(type);
+		newType.setDimension(getDimension());
+		return newType;
+	}
+	
+	@Override
 	public boolean equals(Object obj) {
 		if (obj == this) {
 			return true;
@@ -44,7 +52,7 @@ public class PrimitiveType extends Type {
 		}
 
 		PrimitiveType type = (PrimitiveType)obj;
-		return super.equals(obj) &&  this.type.equals(type);
+		return super.equals(obj) &&  this.type.equals(type.getType());
 	}
 
 	@Override
@@ -53,22 +61,18 @@ public class PrimitiveType extends Type {
 				((PrimitiveType)otherType).getType() == type;
 	}
 
-	@Override
 	public boolean isBoolean() {
 		return type == DataTypes.BOOLEAN;
 	}
 
-	@Override
 	public boolean isInteger() {
 		return type == DataTypes.INT;
 	}
 
-	@Override
 	public boolean isString() {
 		return type == DataTypes.STRING;
 	}
 
-	@Override
 	public boolean isVoid() {
 		return type == DataTypes.VOID;
 	}

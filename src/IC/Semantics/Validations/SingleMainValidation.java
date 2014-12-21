@@ -1,13 +1,12 @@
 package IC.Semantics.Validations;
 
-import java.util.Stack;
-
+import IC.DataTypes;
+import IC.AST.ASTNode;
 import IC.AST.ArrayLocation;
 import IC.AST.Assignment;
 import IC.AST.Break;
 import IC.AST.CallStatement;
 import IC.AST.Continue;
-import IC.AST.Expression;
 import IC.AST.ExpressionBlock;
 import IC.AST.Field;
 import IC.AST.Formal;
@@ -27,11 +26,11 @@ import IC.AST.NewClass;
 import IC.AST.PrimitiveType;
 import IC.AST.Program;
 import IC.AST.Return;
-import IC.AST.Statement;
 import IC.AST.StatementsBlock;
 import IC.AST.StaticCall;
 import IC.AST.StaticMethod;
 import IC.AST.This;
+import IC.AST.Type;
 import IC.AST.UserType;
 import IC.AST.VariableLocation;
 import IC.AST.VirtualCall;
@@ -40,213 +39,219 @@ import IC.AST.Visitor;
 import IC.AST.While;
 import IC.Semantics.Exceptions.SemanticError;
 
-public class ControlStatementsValidation implements Visitor {
+public class SingleMainValidation implements Visitor {
 
-	/* This class checks that control statements appear
-	 * only in the right form / place.
-	 * 
-	 * # break; and continue; commands must only appear inside loops
-	 * 			(currently only loop in IC language is while loop).
-	 * 
-	 * # this can only be used in instance method (non-static methods)
-	 */
-	
-	//push flag whenever checking while statement. As long as stack is not
-	//empty, we're inside a while loop (using stack because of nested loops possibility)
-	private Stack<Boolean> whileStack = new Stack<Boolean>();
-	
-	//raise flag before visiting static method tree, and lower it when done
-	private boolean staticMethod = false;
+	private ASTNode virtualMain;
+	private ASTNode libraryMain;
+	private ASTNode incorrectStatic;
+	private int staticMainCount = 0;
 	
 	@Override
 	public Object visit(Program program) {
+
 		for (ICClass cls : program.getClasses()) {
 			cls.accept(this);
 		}
+		
+		/* after going through all methods, we can have a better
+		 * error messaging, if one such error has occurred (in other
+		 * words, we'll give precedence to the more important error
+		 * rather than the first one we encounter).
+		 */
+		
+		if (staticMainCount > 1) {
+			throw new SemanticError("Program has more than one main method.", program);
+		}
+			
+		//staticMainCount is either 0 or 1. We have to make sure
+		//no other problematic main methods were defined / declared:
+		
+		if (incorrectStatic != null) {
+			if (staticMainCount == 0)
+				throw new SemanticError("Incorrect main method signature", incorrectStatic);
+			throw new SemanticError("Program has more than one main method, one with incorrect signature.", incorrectStatic);
+		}
+			
+		if (libraryMain != null) {
+			throw new SemanticError("Library defines a main method (main signature requires implemenation for point of entry).", libraryMain);
+		}
+		
+		if (virtualMain != null) {
+			if (staticMainCount == 0)
+				throw new SemanticError("Incorrect main method signature, cannot be virtual!", virtualMain);
+			throw new SemanticError("Program has more than one main method, one of which is virtual.", virtualMain);
+		}
+		
+		//no exception thrown... everything is O.K. :)
+		
 		return null;
 	}
 
 	@Override
 	public Object visit(ICClass icClass) {
-		//no need to check fields, only methods can have statements:
-		for (Method m : icClass.getMethods()) {
-			m.accept(this);
+
+		for (Method method : icClass.getMethods()) {
+			method.accept(this);
 		}
+		
 		return null;
 	}
 
 	@Override
 	public Object visit(Field field) {
-		// do nothing (unreachable in this context)
+		//do nothing
 		return null;
 	}
 
 	@Override
 	public Object visit(VirtualMethod method) {
-		//only go over statements, not formals:
-		for (Statement stmt : method.getStatements()) {
-			stmt.accept(this);
-		}
+		
+		if (method.getName().equals("main"))
+			if (virtualMain == null)
+				virtualMain = method;
+		
 		return null;
 	}
 
 	@Override
 	public Object visit(StaticMethod method) {
-
-		//only go over statements, not formals:
-		staticMethod = true;
-		for (Statement stmt : method.getStatements()) {
-			stmt.accept(this);
+		
+		if (method.getName().equals("main")) {
+			//V static *** main(**)
+			
+			if (method.getType() instanceof PrimitiveType &&
+					((PrimitiveType)method.getType()).getPrimitiveType() == DataTypes.VOID) {
+				//V static void main(**)
+				if (method.getFormals().size() == 1) {
+					Type formalType = method.getFormals().get(0).getType();
+					if (formalType instanceof PrimitiveType &&
+							((PrimitiveType)formalType).getPrimitiveType() == DataTypes.STRING
+							&& formalType.getDimension() == 1) {
+							//V static void main(string[])
+							staticMainCount++;
+							return null;
+						}							
+				}
+			}
+			
+			//reaching this point means there's a static method
+			//main that has an incorrect signature :(
+			if (incorrectStatic == null)
+				incorrectStatic = method;
 		}
-		staticMethod = false;
 		
 		return null;
 	}
 
 	@Override
 	public Object visit(LibraryMethod method) {
-		// do nothing (has no implementation and therefore no statements)
+
+		if (method.getName().equals("main"))
+			if (libraryMain == null)
+				libraryMain = method;
+
 		return null;
 	}
 
 	@Override
 	public Object visit(Formal formal) {
-		//do nothing (formals are not statements and therefore not checked)
+		//do nothing
 		return null;
 	}
 
 	@Override
 	public Object visit(PrimitiveType type) {
-		// do nothing
+		//do nothing
 		return null;
 	}
 
 	@Override
 	public Object visit(UserType type) {
-		// do nothing
+		//do nothing
 		return null;
 	}
 
 	@Override
 	public Object visit(Assignment assignment) {
-		assignment.getVariable().accept(this);
-		assignment.getAssignment().accept(this);
+		//do nothing
 		return null;
 	}
 
 	@Override
 	public Object visit(CallStatement callStatement) {
-		callStatement.getCall().accept(this);
+		//do nothing
 		return null;
 	}
 
 	@Override
 	public Object visit(Return returnStatement) {
-		if (returnStatement.hasValue())
-			returnStatement.getValue().accept(this);
+		//do nothing
 		return null;
 	}
 
 	@Override
 	public Object visit(If ifStatement) {
-		ifStatement.getCondition().accept(this);
-		ifStatement.getOperation().accept(this);
-		if (ifStatement.hasElse())
-			ifStatement.getElseOperation().accept(this);
-		
+		//do nothing
 		return null;
 	}
 
 	@Override
-	public Object visit(While whileStatement) {		
-		
-		whileStatement.getCondition().accept(this);
-		
-		//raise flag only when checking statement(s) inside loop:
-		whileStack.push(true);
-		whileStatement.getOperation().accept(this);
-		whileStack.pop();
-		
+	public Object visit(While whileStatement) {
+		//do nothing
 		return null;
 	}
 
 	@Override
 	public Object visit(Break breakStatement) {
-		if (whileStack.size() == 0) {
-			throw new SemanticError("break must only appear inside loop",
-					breakStatement.getLine(),
-					breakStatement.getColumn());
-		}
+		//do nothing
 		return null;
 	}
 
 	@Override
 	public Object visit(Continue continueStatement) {
-		if (whileStack.size() == 0) {
-			throw new SemanticError("continue must only appear inside loop",
-					continueStatement.getLine(),
-					continueStatement.getColumn());
-		}
+		//do nothing
 		return null;
 	}
 
 	@Override
 	public Object visit(StatementsBlock statementsBlock) {
-		for (Statement stmt : statementsBlock.getStatements()) {
-			stmt.accept(this);
-		}
+		//do nothing
 		return null;
 	}
 
 	@Override
 	public Object visit(LocalVariable localVariable) {
-		if (localVariable.hasInitValue())
-			localVariable.getInitValue().accept(this);
+		//do nothing
 		return null;
 	}
 
 	@Override
 	public Object visit(VariableLocation location) {
-		if (location.isExternal())
-			location.getLocation().accept(this);
+		//do nothing
 		return null;
 	}
 
 	@Override
 	public Object visit(ArrayLocation location) {
-		location.getArray().accept(this);
-		location.getIndex().accept(this);
+		//do nothing
 		return null;
 	}
 
 	@Override
 	public Object visit(StaticCall call) {
-		for (Expression expr : call.getArguments()) {
-			expr.accept(this);
-		}
+		//do nothing
 		return null;
 	}
 
 	@Override
 	public Object visit(VirtualCall call) {
-		
-		if (call.isExternal())
-			call.getLocation().accept(this);
-		
-		for (Expression expr : call.getArguments()) {
-			expr.accept(this);
-		}
-		
+		//do nothing
 		return null;
 	}
 
 	@Override
 	public Object visit(This thisExpression) {
-		if (staticMethod) {
-			throw new SemanticError("this keyword can only be used within instance methods.",
-					thisExpression.getLine(),
-					thisExpression.getColumn());
-		}
+		//do nothing
 		return null;
 	}
 
@@ -258,51 +263,49 @@ public class ControlStatementsValidation implements Visitor {
 
 	@Override
 	public Object visit(NewArray newArray) {
-		newArray.getSize().accept(this);
+		//do nothing
 		return null;
 	}
 
 	@Override
 	public Object visit(Length length) {
-		length.getArray().accept(this);
+		//do nothing
 		return null;
 	}
 
 	@Override
 	public Object visit(MathBinaryOp binaryOp) {
-		binaryOp.getFirstOperand().accept(this);
-		binaryOp.getSecondOperand().accept(this);
+		//do nothing
 		return null;
 	}
 
 	@Override
 	public Object visit(LogicalBinaryOp binaryOp) {
-		binaryOp.getFirstOperand().accept(this);
-		binaryOp.getSecondOperand().accept(this);
+		//do nothing
 		return null;
 	}
 
 	@Override
 	public Object visit(MathUnaryOp unaryOp) {
-		unaryOp.getOperand().accept(this);
+		//do nothing
 		return null;
 	}
 
 	@Override
 	public Object visit(LogicalUnaryOp unaryOp) {
-		unaryOp.getOperand().accept(this);
+		//do nothing
 		return null;
 	}
 
 	@Override
 	public Object visit(Literal literal) {
-		// do nothing
+		//do nothing
 		return null;
 	}
 
 	@Override
 	public Object visit(ExpressionBlock expressionBlock) {
-		expressionBlock.getExpression().accept(this);
+		//do nothing
 		return null;
 	}
 

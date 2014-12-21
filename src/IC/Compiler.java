@@ -7,15 +7,16 @@ import java.util.List;
 
 import java_cup.runtime.Symbol;
 import IC.AST.ICClass;
+import IC.AST.PrettyPrinter;
 import IC.AST.Program;
 import IC.Parser.Lexer;
 import IC.Parser.LexicalError;
 import IC.Parser.LibParser;
 import IC.Parser.Parser;
 import IC.Parser.SyntaxError;
+import IC.Semantics.ScopesTypesPrinter;
 import IC.Semantics.SemanticChecks;
-import IC.Semantics.SemanticError;
-import IC.Semantics.Scopes.ScopesPrinter;
+import IC.Semantics.Exceptions.SemanticError;
 
 /**
 * @team Ori_Idan_Guy
@@ -29,7 +30,7 @@ public class Compiler {
     	
     	/* check validity of arguments: */
     	
-    	if (args.length < 1 || args.length > 2) {
+    	if (args.length < 1 || args.length > 4) {
     		if (args.length == 0)
     			System.err.println("Input filename is missing from arguments.");
     		else
@@ -37,16 +38,49 @@ public class Compiler {
     		return;
     	}
     	
-    	//if library is supplied, it must be supplied as -Lfilename :
-    	if (args.length > 1 && !args[1].startsWith("-L")) {
-    		System.err.println("Library argument is illegal. Must be captioned with a -L prefix.");
-    		return;
-    	}
-    	
-    	//extract files and check if exists :
+    	boolean printAST = false;
+    	boolean dumpSymtab = false;
     	
     	String icFileName = args[0];
-    	String libFileName = (args.length > 1 ? args[1].substring(2) : null);
+    	String libFileName = null;
+    	
+    	for (int i = 1; i < args.length; i++) {
+    		
+    		String arg = args[i];
+    		
+    		if (arg.startsWith("-L")) {
+    			
+    			if (libFileName != null) {
+    				System.err.println("Error: can only specify one library file!");
+    				return;
+    			}
+    			
+    			libFileName = arg.substring(2);
+    			
+    		} else if (arg.equals("-print-ast")) {
+    			
+    			if (printAST) {
+    				System.err.println("Error: '-print-ast' option is specified more than once.");
+    				return;
+    			}
+    			
+    			printAST = true;
+    			
+    		} else if (arg.equals("-dump-symtab")) {
+    			
+    			if (dumpSymtab) {
+    				System.err.println("Error: '-dump-symtab' option is specified more than once.");
+    				return;
+    			}
+    			
+    			dumpSymtab = true;
+    		} else {
+    			System.err.println("Error: Unknown option '" + arg + "'.");
+    			return;
+    		}
+    	}
+    	    	
+    	//extract files and check if exists :
     	
     	File icFile = new File(icFileName);
     	File libFile = libFileName == null ? null : new File(libFileName);
@@ -82,7 +116,7 @@ public class Compiler {
 		    			return;
 		    		}
 		    		
-	    			//System.out.println("Parsed " + libFile + " successfully!");
+	    			System.out.println("Parsed " + libFile + " successfully!");
 		    		libraryClass = ((Program)result.value).getClasses().get(0);
 		    		
 	    		} catch (SyntaxError e) {
@@ -117,7 +151,10 @@ public class Compiler {
 	    			for (SyntaxError error : errors)
 	    				printError(error);
 	    		} else {
+	    			
 	    			//no error occurred, parse was successful :)
+
+	    			System.out.println("Parsed " + args[0] + " successfully!");
 	    			
 	    			if (libraryClass != null)
 	    				((Program)result.value).getClasses().add(0, libraryClass);
@@ -125,16 +162,17 @@ public class Compiler {
 	    			SemanticChecks semantics = new SemanticChecks(
 	    					((Program)result.value),
 	    					args[0], libraryClass != null);
-	    			try {
-	    				semantics.run();	    					
-	    			} catch (SemanticError e) {
-	    				System.err.println(e.getMessage());
-	    				//e.printStackTrace();
+
+    				semantics.run(); 					
+    				
+	    			if (printAST) {
+	    				System.out.println(((Program)result.value).accept(new PrettyPrinter(args[0])));
 	    			}
-	    			
-	    			//System.out.println("Parsed " + args[0] + " successfully!");
-	    			//System.out.println(new PrettyPrinter(args[0]).visit((Program) result.value));
-	    			System.out.println(semantics.getMainScope().accept(new ScopesPrinter()));
+	    				
+	    			if (dumpSymtab) {
+		    			System.out.println("");
+	    				new ScopesTypesPrinter(semantics.getGlobalScope(), semantics.getTypeTable()).print();	    				
+	    			}
 	    		}
 	    		
     		} catch (SyntaxError e) {
@@ -152,6 +190,9 @@ public class Compiler {
     			printError(new SyntaxError(e.getMessage(), "lexical error", lexer.getLineNumber(), lexer.getColumnNumber()));
     			return;
     			
+    		} catch (SemanticError e) {
+    			System.err.println("semantic error at line " + e.getLine() + ": " + e.getMessage());
+    			return;
     		}
     		
     		    		

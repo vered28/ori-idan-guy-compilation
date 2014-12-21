@@ -1,4 +1,4 @@
-package IC.Semantics;
+package IC.Semantics.Exceptions;
 
 public class StaticVirtualAmbiguityException extends RuntimeException {
 

@@ -1,6 +1,7 @@
 package IC.Semantics.Scopes;
 
 import IC.AST.ASTNode;
+import IC.Semantics.Types.Type;
 
 public class Symbol {
 
