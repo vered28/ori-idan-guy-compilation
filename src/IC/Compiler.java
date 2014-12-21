@@ -201,7 +201,6 @@ public class Compiler {
 			//do nothing
 		} catch (Exception e) {
 			System.err.println("Unknown error occurred.");
-			e.printStackTrace();
 		}
     	
     }

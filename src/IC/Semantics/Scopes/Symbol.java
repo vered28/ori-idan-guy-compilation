@@ -10,6 +10,9 @@ public class Symbol {
 	private Kind kind;
 	private ASTNode node;
 	
+	private boolean hasValue = false;
+	private Object value = null;
+	
 	public Symbol(String id, Type type, Kind kind, ASTNode node) {
 		this.id = id;
 		this.type = type;
@@ -31,6 +34,22 @@ public class Symbol {
 	
 	public ASTNode getNode() {
 		return node;
+	}
+
+	public boolean hasValue() {
+		return this.hasValue;
+	}
+
+	public Object getValue() {
+		return this.value;
+	}
+
+	public void setHasValue(boolean hasValue) {
+		this.hasValue = hasValue;
+	}
+
+	public void setValue(Object value) {
+		this.value = value;
 	}
 	
 }

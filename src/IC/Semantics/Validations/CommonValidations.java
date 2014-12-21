@@ -97,7 +97,7 @@ public class CommonValidations {
 		if (scope.containsSymbol(id)) {
 			Symbol symbol = scope.getSymbol(id);
 			if (symbol.getKind() == kind) {
-				if (symbol.getNode().getLine() < aboveLine) {
+				if (symbol.getNode().getLine() <= aboveLine) {
 					//symbol was found in a previous line (lower
 					//line number).
 					return scope.getSymbol(id);
