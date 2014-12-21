@@ -377,10 +377,10 @@ NotVariableDeclarationStatement ::=
 			  
 VariableDeclarationStatement ::= VariableDeclaration:vd {: RESULT = vd; :} ;
 
-StatementsScope ::= LBRACE {: scopeBeginningLines.push(getLine());
+StatementsScope ::= {: scopeBeginningLines.push(getLine());
                               scopeBeginningColumns.push(getColumn());
-                            :}
-			  		StatementsList:sl RBRACE
+					:}
+					LBRACE StatementsList:sl RBRACE
 			  		{: if (scopeBeginningLines.isEmpty()) 
 			  				//should not happen, but might (cause programmers write with bugs):
 			  				throw new SyntaxError("Parser error at end of scope.", "syntax error", getLine(), getColumn());

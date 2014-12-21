@@ -734,7 +734,7 @@ public class TypesValidation implements Visitor {
 					!secondType.subTypeOf(firstType)) {
 				throw new SemanticError("Invalid usage of comparison " +
 						"operation (can only compare between two expressions"
-						+ " of same type, or that one extends the other.",
+						+ " of same type, or that one extends the other.)",
 						binaryOp);
 			}
 

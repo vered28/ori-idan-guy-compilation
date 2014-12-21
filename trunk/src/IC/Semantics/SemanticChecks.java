@@ -1,11 +1,14 @@
 package IC.Semantics;
 
 import IC.AST.Program;
+import IC.Semantics.Exceptions.SemanticError;
 import IC.Semantics.Scopes.ProgramScope;
 import IC.Semantics.Types.TypeTable;
 import IC.Semantics.Validations.ControlStatementsValidation;
 import IC.Semantics.Validations.DeclarationValidation;
+import IC.Semantics.Validations.LocalVariableInitializedValidation;
 import IC.Semantics.Validations.NonCircularScopesValidation;
+import IC.Semantics.Validations.NonVoidAlwaysReturnsValidation;
 import IC.Semantics.Validations.SingleMainValidation;
 import IC.Semantics.Validations.TypesValidation;
 
@@ -46,6 +49,22 @@ public class SemanticChecks {
 		//4+5 - validate control statements (break / continue / this):
 		validateControlStatements();
 		
+		/* *********** bonus checks: ************/
+		
+		try {
+			
+			//1 - a local variable is used only after it has been initialized
+			validateLocalVariableInitialized();
+			
+			//2 - a method with a non-void return type returns a value on every control path 
+			validateNonVoidAlwaysReturns();
+			
+		} catch (SemanticError e) {
+			throw e;
+		} catch (Exception e) {
+			System.err.println("Exception during bonus checks...");
+		}
+		
 	}
 	
 	public ProgramScope getGlobalScope() {
@@ -81,6 +100,14 @@ public class SemanticChecks {
 	
 	private void validateSingleMain() {
 		program.accept(new SingleMainValidation());
+	}
+	
+	private void validateLocalVariableInitialized() {
+		program.accept(new LocalVariableInitializedValidation());
+	}
+	
+	private void validateNonVoidAlwaysReturns() {
+		program.accept(new NonVoidAlwaysReturnsValidation());
 	}
 	
 }
