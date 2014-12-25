@@ -17,6 +17,7 @@ import IC.Parser.SyntaxError;
 import IC.Semantics.ScopesTypesPrinter;
 import IC.Semantics.SemanticChecks;
 import IC.Semantics.Exceptions.SemanticError;
+import LIR.Translation.BuildGlobalConstants;
 
 /**
 * @team Ori_Idan_Guy
@@ -163,7 +164,9 @@ public class Compiler {
 	    					((Program)result.value),
 	    					args[0], libraryClass != null);
 
-    				semantics.run(); 					
+    				semantics.run();
+    				
+    				((Program)result.value).accept(new BuildGlobalConstants());
     				
 	    			if (printAST) {
 	    				System.out.println(((Program)result.value).accept(new PrettyPrinter(args[0])));
