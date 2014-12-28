@@ -2,12 +2,22 @@ package LIR;
 
 public enum JumpOps {
 
-	Jump(),
-	JumpTrue(),
-	JumpFalse(),
-	JumpGT(),
-	JumpGE(),
-	JumpLT(),
-	JumpLE();
+	Jump("Jump"),
+	JumpTrue("JumpTrue"),
+	JumpFalse("JumpFalse"),
+	JumpGT("JumpG"),
+	JumpGE("JumpGE"),
+	JumpLT("JumpL"),
+	JumpLE("JumpLE");
+	
+	private String description;
+	
+	private JumpOps(String description) {
+		this.description = description;
+	}
+	
+	public String getDescription() {
+		return description;
+	}
 	
 }

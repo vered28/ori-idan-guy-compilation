@@ -9,7 +9,9 @@ public interface LIRVisitor {
 	public Object visit(LIRMethod method);
 
 	public Object visit(ConstantInteger constant);
-	
+
+	public Object visit(ConstantNull constant);
+
 	public Object visit(ConstantString constant);
 	
 	public Object visit(ConstantDispatch constant);
@@ -17,6 +19,8 @@ public interface LIRVisitor {
 	public Object visit(Register register);
 	
 	public Object visit(Memory memory);
+
+	public Object visit(Label label);
 	
 	public Object visit(ArrayLocation location);
 	

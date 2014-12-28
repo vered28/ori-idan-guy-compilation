@@ -47,6 +47,7 @@ import IC.AST.While;
 import IC.Semantics.Exceptions.DeadCodeException;
 import IC.Semantics.Exceptions.SemanticError;
 import IC.Semantics.Scopes.BlockScope;
+import IC.Semantics.Scopes.ScopesTraversal;
 import IC.Semantics.Scopes.Kind;
 import IC.Semantics.Scopes.Scope;
 import IC.Semantics.Scopes.Symbol;
@@ -558,7 +559,7 @@ public class LocalVariableInitializedValidation implements Visitor {
 			Object value = localVariable.getInitValue().accept(this);
 			
 			//find symbol for this local variable:
-			Symbol sym = CommonValidations.findSymbol(
+			Symbol sym = ScopesTraversal.findSymbol(
 					localVariable.getName(), Kind.VARIABLE,
 					localVariable.getEnclosingScope(),
 					localVariable.getLine(), true);
@@ -590,7 +591,7 @@ public class LocalVariableInitializedValidation implements Visitor {
 			//declared, if we get null, then it's just not a local
 			//variable and therefore of no interest to us.
 			
-			Symbol var = CommonValidations.findSymbol(location.getName(),
+			Symbol var = ScopesTraversal.findSymbol(location.getName(),
 					Kind.VARIABLE, location.getEnclosingScope(),
 					location.getLine(),
 					true /* no need to look outside the scope of the current

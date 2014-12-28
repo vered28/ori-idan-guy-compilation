@@ -10,8 +10,12 @@ public class LIRMethod extends LIRInstruction {
 	private List<LIRInstruction> instructions;
 	
 	public LIRMethod(ASTNode node) {
+		this(node, new LinkedList<LIRInstruction>());
+	}
+	
+	public LIRMethod(ASTNode node, List<LIRInstruction> instructions) {
 		super(node);
-		this.instructions = new LinkedList<LIRInstruction>();
+		this.instructions = instructions;
 	}
 
 	@Override
