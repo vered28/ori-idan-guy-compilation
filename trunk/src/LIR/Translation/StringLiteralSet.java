@@ -41,4 +41,12 @@ public class StringLiteralSet extends HashSet<StringLiteral> {
 		return changed;
 	}
 	
+	public StringLiteral get(String str) {
+		for (StringLiteral sl : this) {
+			if (sl.getLiteral().getValue().equals(str))
+				return sl;
+		}
+		return null;
+	}
+	
 }

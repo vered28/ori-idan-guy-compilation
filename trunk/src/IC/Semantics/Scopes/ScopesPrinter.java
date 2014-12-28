@@ -128,6 +128,15 @@ public class ScopesPrinter implements ScopesVisitor {
 			output.append(sym.getType().accept(this));
 			output.append(" ");
 			output.append(sym.getID());
+			if (sym.getLastStatementUsed() != null) {
+				output.append("; last used in line ");
+				if (sym.getLastExpressionUsed() != null) {
+					output.append(sym.getLastExpressionUsed().getLine());
+					output.append(" (expression)");
+				} else {
+					output.append(sym.getLastStatementUsed().getLine());
+				}
+			}
 			output.append("\n");
 		}
 		
@@ -157,6 +166,15 @@ public class ScopesPrinter implements ScopesVisitor {
 			output.append(sym.getType().accept(this));
 			output.append(" ");
 			output.append(sym.getID());
+			if (sym.getLastStatementUsed() != null) {
+				output.append("; last used in line ");
+				if (sym.getLastExpressionUsed() != null) {
+					output.append(sym.getLastExpressionUsed().getLine());
+					output.append(" (expression)");
+				} else {
+					output.append(sym.getLastStatementUsed().getLine());
+				}
+			}
 			output.append("\n");
 		}
 		

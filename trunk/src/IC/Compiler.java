@@ -17,7 +17,7 @@ import IC.Parser.SyntaxError;
 import IC.Semantics.ScopesTypesPrinter;
 import IC.Semantics.SemanticChecks;
 import IC.Semantics.Exceptions.SemanticError;
-import LIR.Translation.BuildGlobalConstants;
+import LIR.LIRTranslationProcess;
 
 /**
 * @team Ori_Idan_Guy
@@ -166,7 +166,7 @@ public class Compiler {
 
     				semantics.run();
     				
-    				((Program)result.value).accept(new BuildGlobalConstants());
+    				new LIRTranslationProcess((Program)result.value).run();
     				
 	    			if (printAST) {
 	    				System.out.println(((Program)result.value).accept(new PrettyPrinter(args[0])));
@@ -204,6 +204,7 @@ public class Compiler {
 			//do nothing
 		} catch (Exception e) {
 			System.err.println("Unknown error occurred.");
+			e.printStackTrace();
 		}
     	
     }

@@ -45,6 +45,7 @@ import IC.AST.While;
 import IC.Semantics.Exceptions.SemanticError;
 import IC.Semantics.Exceptions.TypeMismatchSemanticError;
 import IC.Semantics.Scopes.ClassScope;
+import IC.Semantics.Scopes.ScopesTraversal;
 import IC.Semantics.Scopes.Kind;
 import IC.Semantics.Scopes.Scope;
 import IC.Semantics.Scopes.Symbol;
@@ -67,7 +68,7 @@ public class TypesValidation implements Visitor {
 		
 		Symbol symbol;
 		for (Kind k : kinds) {
-			if ((symbol = CommonValidations.findSymbol(id, k, scope, aboveLine)) != null)
+			if ((symbol = ScopesTraversal.findSymbol(id, k, scope, aboveLine)) != null)
 				return symbol;
 		}
 
@@ -178,7 +179,7 @@ public class TypesValidation implements Visitor {
 			//method's signature. We'll validated same number of formals,
 			//now let's validate types weren't changed.
 			
-			Symbol originalMethod = CommonValidations.findSymbol(method.getName(),
+			Symbol originalMethod = ScopesTraversal.findSymbol(method.getName(),
 					isStatic ? Kind.STATICMETHOD : Kind.VIRTUALMETHOD,
 					scope.getParentScope());
 			
@@ -426,8 +427,8 @@ public class TypesValidation implements Visitor {
 			//DeclarationValidation already throws error if not
 			
 			//for "this" keyword, we already return the class type --> the lookup
-			//will only take one step --> we'll get the class scope as requied.
-			ClassScope scope = (ClassScope)CommonValidations.getClassScopeByName(
+			//will only take one step --> we'll get the class scope as required.
+			ClassScope scope = (ClassScope)ScopesTraversal.getClassScopeByName(
 					location.getEnclosingScope(), type.getName());
 			
 			//find type of location.getName() in class scope:
@@ -542,11 +543,11 @@ public class TypesValidation implements Visitor {
 		//method formals (type-wise)
 		
 		ClassScope scope = (ClassScope)
-				CommonValidations.getClassScopeByName(
+				ScopesTraversal.getClassScopeByName(
 						call.getEnclosingScope(),
 						call.getClassName());
 		
-		Symbol methodSymbol = CommonValidations.findSymbol(
+		Symbol methodSymbol = ScopesTraversal.findSymbol(
 				call.getName(), Kind.STATICMETHOD, scope);
 		
 		return visitCall(call, methodSymbol);
@@ -575,12 +576,12 @@ public class TypesValidation implements Visitor {
 		} else {
 			
 			ClassScope currentScope = (ClassScope)call.getEnclosingScope();
-			Symbol staticSymbol = CommonValidations.findSymbol(
+			Symbol staticSymbol = ScopesTraversal.findSymbol(
 					call.getName(), Kind.STATICMETHOD, currentScope);
 			
 			if (staticSymbol != null) {
 				
-				Symbol virtualSymbol = CommonValidations.findSymbol(
+				Symbol virtualSymbol = ScopesTraversal.findSymbol(
 						call.getName(), Kind.VIRTUALMETHOD, currentScope);
 							
 				if (virtualSymbol == null) {
@@ -603,11 +604,11 @@ public class TypesValidation implements Visitor {
 			}
 		}
 		
-		Symbol methodSymbol = CommonValidations.findSymbol(
+		Symbol methodSymbol = ScopesTraversal.findSymbol(
 				call.getName(),
 				virtualMethod ? Kind.VIRTUALMETHOD : Kind.STATICMETHOD,
 				(external == null) ? call.getEnclosingScope() : 
-					CommonValidations.getClassScopeByName(call.getEnclosingScope(), external.getName())
+					ScopesTraversal.getClassScopeByName(call.getEnclosingScope(), external.getName())
 				);
 
 		return visitCall(call, methodSymbol);
@@ -619,7 +620,7 @@ public class TypesValidation implements Visitor {
 		
 		//get type of class we're running in (class scope parent of current scope):
 		Type thisType = ((ClassTypeEntry)typeTable.get(
-							CommonValidations.getClassScopeOfCurrentScope(
+							ScopesTraversal.getClassScopeOfCurrentScope(
 											thisExpression.getEnclosingScope())
 										.getID())).getUserType();
 		

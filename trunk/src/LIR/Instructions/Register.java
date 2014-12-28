@@ -4,6 +4,8 @@ import IC.AST.ASTNode;
 
 public class Register extends BasicOperand {
 
+	public static final int DUMMY = -1;
+	
 	//for R1, for example, num = 1; for R2, num = 2; and so on
 	private final int num;
 	
@@ -21,4 +23,9 @@ public class Register extends BasicOperand {
 		return num;
 	}
 
+	@Override
+	public boolean equals(Object obj) {
+		if (!(obj instanceof Register)) return false;
+		return ((Register)obj).getNum() == num;
+	}
 }

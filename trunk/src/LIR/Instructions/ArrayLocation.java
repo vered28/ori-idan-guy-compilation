@@ -15,8 +15,7 @@ public class ArrayLocation extends Operand {
 
 	@Override
 	public Object accept(LIRVisitor visitor) {
-		// TODO Auto-generated method stub.
-		return null;
+		return visitor.visit(this);
 	}
 	
 	public Register getArray() {

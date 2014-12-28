@@ -6,9 +6,9 @@ import LIR.JumpOps;
 public class Jump extends LIRInstruction {
 
 	private final JumpOps op;
-	private final String JumpToLabel;
+	private final Label JumpToLabel;
 	
-	public Jump(ASTNode node, JumpOps op, String label) {
+	public Jump(ASTNode node, JumpOps op, Label label) {
 		super(node);
 		this.op = op;
 		this.JumpToLabel = label;
@@ -23,7 +23,7 @@ public class Jump extends LIRInstruction {
 		return op;
 	}
 	
-	public String getLabel() {
+	public Label getLabel() {
 		return JumpToLabel;
 	}
 

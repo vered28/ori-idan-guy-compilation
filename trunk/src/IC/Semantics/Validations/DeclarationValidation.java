@@ -42,6 +42,7 @@ import IC.AST.Visitor;
 import IC.AST.While;
 import IC.Semantics.Exceptions.SemanticError;
 import IC.Semantics.Scopes.ClassScope;
+import IC.Semantics.Scopes.ScopesTraversal;
 import IC.Semantics.Scopes.Kind;
 import IC.Semantics.Scopes.Scope;
 import IC.Semantics.Scopes.Symbol;
@@ -70,7 +71,7 @@ public class DeclarationValidation implements Visitor {
 	
 	private Symbol validateDeclaration(String id, ASTNode node, Kind kind, Scope scope, boolean onlyCheckInMethodScope) {
 		
-		Symbol symbol = CommonValidations.findSymbol(
+		Symbol symbol = ScopesTraversal.findSymbol(
 				id, kind, scope, onlyCheckInMethodScope);
 		
 		if (symbol == null)
@@ -94,7 +95,7 @@ public class DeclarationValidation implements Visitor {
 		
 		for (Kind k : kinds) {
 			strKinds += k.getValue().toLowerCase() + " or ";
-			if ((symbol = CommonValidations.findSymbol(id, k, scope, aboveLine, onlyCheckInMethodScope)) != null)
+			if ((symbol = ScopesTraversal.findSymbol(id, k, scope, aboveLine, onlyCheckInMethodScope)) != null)
 				return symbol;
 		}
 		
@@ -142,7 +143,7 @@ public class DeclarationValidation implements Visitor {
 			
 			//class extends another class - potential for field overloading:
 			
-			Symbol field2 = CommonValidations.findSymbol(
+			Symbol field2 = ScopesTraversal.findSymbol(
 					field.getName(), Kind.FIELD, currentScope.getParentScope());
 			
 			if (field2 != null) {
@@ -167,7 +168,7 @@ public class DeclarationValidation implements Visitor {
 			//method's signature. We'll only check number of formals here.
 			//in TypeValidation we'll check for correct types.
 			
-			Symbol originalMethod = CommonValidations.findSymbol(method.getName(),
+			Symbol originalMethod = ScopesTraversal.findSymbol(method.getName(),
 					isStatic ? Kind.STATICMETHOD : Kind.VIRTUALMETHOD,
 					scope.getParentScope());
 			
@@ -237,7 +238,7 @@ public class DeclarationValidation implements Visitor {
 	public Object visit(UserType type) {
 
 		//check that type has been declared (there exists a class type.getName()):
-		if (CommonValidations.getClassScopeByName(
+		if (ScopesTraversal.getClassScopeByName(
 				type.getEnclosingScope(), type.getName()) == null) {
 			throw new SemanticError("'" + type.getName()
 					+ "' class has not been declared.",
@@ -340,8 +341,8 @@ public class DeclarationValidation implements Visitor {
 				Arrays.asList(new Kind[] { Kind.VARIABLE, Kind.FORMAL, Kind.FIELD }),
 				//if external, search in external symbol scope, and not in current scope:
 				(external != null) ?
-						((thisKeyword) ? CommonValidations.getClassScopeOfCurrentScope(location.getEnclosingScope())
-										: CommonValidations.getClassScopeByName(location.getEnclosingScope(),
+						((thisKeyword) ? ScopesTraversal.getClassScopeOfCurrentScope(location.getEnclosingScope())
+										: ScopesTraversal.getClassScopeByName(location.getEnclosingScope(),
 																((IC.Semantics.Types.UserType)external.getType()).getName()))
 						: location.getEnclosingScope(),
 				location.getLine(),
@@ -398,7 +399,7 @@ public class DeclarationValidation implements Visitor {
 		Symbol method =
 			validateDeclaration(call.getName(), call,
 				Kind.STATICMETHOD,
-				CommonValidations.getClassScopeByName(call.getEnclosingScope(),
+				ScopesTraversal.getClassScopeByName(call.getEnclosingScope(),
 										call.getClassName())
 				);
 		
@@ -447,11 +448,11 @@ public class DeclarationValidation implements Visitor {
 			//and a virtual method with call.getName() declared in this scope.
 			
 			ClassScope currentScope = (ClassScope)call.getEnclosingScope();
-			Symbol staticSymbol = CommonValidations.findSymbol(call.getName(), Kind.STATICMETHOD, currentScope);
+			Symbol staticSymbol = ScopesTraversal.findSymbol(call.getName(), Kind.STATICMETHOD, currentScope);
 			
 			if (staticSymbol != null) {
 				
-				Symbol virtualSymbol = CommonValidations.findSymbol(call.getName(), Kind.VIRTUALMETHOD, currentScope);
+				Symbol virtualSymbol = ScopesTraversal.findSymbol(call.getName(), Kind.VIRTUALMETHOD, currentScope);
 				//if number of arguments is different, but one of them matches
 				//this call's arguments count, choose the one that matches.
 				//otherwise, throw an excpetion:
@@ -501,8 +502,8 @@ public class DeclarationValidation implements Visitor {
 				virtualMethod ? Kind.VIRTUALMETHOD : Kind.STATICMETHOD,
 				//if external, validate method exists in external scope:
 				(external != null) ?
-							((thisKeyword) ? CommonValidations.getClassScopeOfCurrentScope(call.getEnclosingScope())
-										  : CommonValidations.getClassScopeByName(
+							((thisKeyword) ? ScopesTraversal.getClassScopeOfCurrentScope(call.getEnclosingScope())
+										  : ScopesTraversal.getClassScopeByName(
 												call.getEnclosingScope(),
 												((IC.Semantics.Types.UserType)external.getType()).getName()))
 							: call.getEnclosingScope());

@@ -1,14 +1,9 @@
-package IC.Semantics.Validations;
+package IC.Semantics.Scopes;
 
+import IC.AST.ICClass;
 import IC.Semantics.Exceptions.StaticVirtualAmbiguityException;
-import IC.Semantics.Scopes.BlockScope;
-import IC.Semantics.Scopes.ClassScope;
-import IC.Semantics.Scopes.Kind;
-import IC.Semantics.Scopes.MethodScope;
-import IC.Semantics.Scopes.Scope;
-import IC.Semantics.Scopes.Symbol;
 
-public class CommonValidations {
+public class ScopesTraversal {
 
 	public static Scope getClassScopeByName(Scope currentScope, String className) {
 		
@@ -41,6 +36,22 @@ public class CommonValidations {
 			return currentScope.getParentScope(); //parent of method is always class
 		
 		return getClassScopeOfCurrentScope(currentScope.getParentScope());
+	}
+	
+	public static ICClass getICClassFromClassScope(ClassScope currentScope) {
+		
+		//climb to the root:
+		Scope scope = currentScope.getParentScope();
+		while(scope.getParentScope() != null) {
+			scope = scope.getParentScope();
+		}
+		
+		Symbol symbol = scope.getSymbol(currentScope.getID());
+		if (symbol == null)
+			return null;
+		
+		return (ICClass)symbol.getNode();
+		
 	}
 	
 	public static Symbol findSymbol(String id, Kind kind, Scope scope) {

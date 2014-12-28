@@ -20,6 +20,10 @@ public class DispatchTable implements Cloneable {
 		this.methods = new HashMap<Method, Integer>();
 	}
 	
+	public void setName(String name) {
+		this.name = name;
+	}
+	
 	public String getName() {
 		return "_DV_" + name;
 	}
@@ -32,6 +36,14 @@ public class DispatchTable implements Cloneable {
 		return fields.keySet();
 	}
 	
+	public int getOffset(Field field) {
+		return fields.get(field);
+	}
+
+	public int getOffset(Method method) {
+		return methods.get(method);
+	}
+
 	public void addMethod(Method method) {
 		methods.put(method, methods.size());
 	}
