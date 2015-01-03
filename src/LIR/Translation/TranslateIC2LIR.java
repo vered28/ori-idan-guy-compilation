@@ -188,7 +188,7 @@ public class TranslateIC2LIR implements Visitor {
 		
 		//first thing find the symbol representing this variable:
 		Symbol symbol = findSymbol(variableName,
-				Arrays.asList(new Kind[] { Kind.VARIABLE, Kind.FORMAL, Kind.FIELD }),
+				Arrays.asList(new Kind[] { Kind.VARIABLE, Kind.FORMAL, Kind.FIELD, Kind.CLASS }),
 				node.getEnclosingScope(),
 				node.getLine());
 		
@@ -207,7 +207,7 @@ public class TranslateIC2LIR implements Visitor {
 			}			
 		}
 		
-		markWhenLastUsed(symbol, reg);		
+		markWhenLastUsed(symbol, reg);
 	}
 	
 	private void flushRegistersValuesBackToMemory(int startIndex, While whileStmt) {
@@ -283,7 +283,7 @@ public class TranslateIC2LIR implements Visitor {
 	
 	private boolean isSymbolNoLongerInUse(Symbol symbol) {
 		
-		if (symbol.getKind() == Kind.FIELD) {
+		if (symbol instanceof ExtendedSymbol) {
 			ExtendedSymbol arrayExtended = (ExtendedSymbol)symbol;
 			return (arrayExtended.getLastStatementUsed(currentMethod) == null
 					|| (arrayExtended.getLastStatementUsed(currentMethod) == currentStatement
@@ -563,12 +563,7 @@ public class TranslateIC2LIR implements Visitor {
 								return false;
 							
 							op = UnaryOps.Dec;
-							//need to remove another instruction:
-							currentMethodInstructions.remove(
-								currentMethodInstructions.get(
-												currentMethodInstructions.size() - 2));
 							reg = (Register)lastInstruction.getSecondOperand();
-							RegisterPool.putback((Register)lastInstruction.getSecondOperand());
 						}
 						
 						if (op != null) {
@@ -627,6 +622,12 @@ public class TranslateIC2LIR implements Visitor {
 					new ArrayLoad(assignment,
 							(LIR.Instructions.ArrayLocation)assign,
 							(Register)assignOp));
+		} else if (assign instanceof RegisterOffset) {
+			assignOp = RegisterPool.get(assignment);
+			currentMethodInstructions.add(
+					new FieldLoad(assignment,
+							(RegisterOffset)assign,
+							(Register)assignOp));			
 		}
 		
 		if (var instanceof RegisterOffset) {
@@ -1016,9 +1017,7 @@ public class TranslateIC2LIR implements Visitor {
 								reg));
 				
 				//TODO: think about external
-				Location location = (Location)
-						((LIR.Instructions.ArrayLocation)initValue)
-						.getArray().getAssociactedICNode();
+				Location location = (Location)localVariable.getInitValue();
 				
 				while (location instanceof ArrayLocation) {
 					location = (Location)((ArrayLocation)location).getArray();
@@ -1045,16 +1044,22 @@ public class TranslateIC2LIR implements Visitor {
 		
 		//TODO: not necessarily BasicOperand, could also be offset (array / field)
 		BasicOperand external = null;
+		boolean thisKeyword = false;
 		if (location.isExternal()) {
-			//TODO: what if "this"...
 			external = (BasicOperand)location.getLocation().accept(this);
+			thisKeyword = (location.getLocation() instanceof This);
 		}
 		
 		ClassScope classScope = null;
-		if (external != null)
+		if (external != null) {
+			if (thisKeyword) {
+				classScope = (ClassScope)currentClass.getEnclosingScope();
+			} else {
 			classScope = (ClassScope)ScopesTraversal.getClassScopeByName(
 					location.getEnclosingScope(),
 					external.getAssociactedICNode().getNodeType().getName());
+			}
+		}
 		
 		Symbol symbol = findSymbol(
 				location.getName(),
@@ -1120,7 +1125,8 @@ public class TranslateIC2LIR implements Visitor {
 				
 				//return register offset:
 				return new RegisterOffset(location, reg,
-								new ConstantInteger(location, dt.getOffset((Field)symbol.getNode()))
+								new ConstantInteger(location, dt.getOffset((Field)symbol.getNode())),
+								symbol
 						);
 				
 			default:
@@ -1140,15 +1146,25 @@ public class TranslateIC2LIR implements Visitor {
 		if (array instanceof Register) {
 			arrayOperand = (Register)array;
 		} else if (array instanceof RegisterOffset) {
-			arrayOperand = ((RegisterOffset)array).getRegister();
+			
+			//do we need to dispose and reuse of register?:
+			Register reg = ((RegisterOffset)array).getRegister();
+			if (isSymbolNoLongerInUse(variables.getSymbol(reg))) {
+				RegisterPool.putbackAfterNextGet(reg);
+			}
 
-			//array is field, need to move the offset to
-			//register:
+			//array is field, need to move the offset to register:
+			arrayOperand = RegisterPool.get(location);
 			currentMethodInstructions.add(new FieldLoad(
 					location,
 					((RegisterOffset)array),
 					arrayOperand)
 			);
+			
+			decideIfToKillRegister(arrayOperand,
+					((RegisterOffset)array).getSymbol().getID(),
+					location);
+						
 		} else if (array instanceof Memory) {
 			//move array to reg:
 			arrayOperand = RegisterPool.get(location);
@@ -1396,8 +1412,24 @@ public class TranslateIC2LIR implements Visitor {
 
 	@Override
 	public Object visit(This thisExpression) {
-		// TODO Auto-generated method stub.
-		return null;
+
+		//returns register pointing to this class DV_PTR.
+		
+		//check if register already exists:
+		Symbol symbol = ScopesTraversal.findSymbol(currentClass.getName(),
+				Kind.CLASS, thisExpression.getEnclosingScope());
+		
+		if (symbol != null && variables.containsKey(symbol))
+			return variables.get(symbol);
+		
+		//symbol does not exist, move this to new register, map it and store it:
+		Register reg = RegisterPool.get(thisExpression);
+		currentMethodInstructions.add(new Move(thisExpression,
+				new Memory(thisExpression, "this"), reg));
+		decideIfToKillRegister(reg, currentClass.getName(), thisExpression);
+		
+		return reg;
+		
 	}
 
 	@Override
