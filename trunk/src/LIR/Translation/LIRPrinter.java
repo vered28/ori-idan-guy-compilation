@@ -357,6 +357,13 @@ public class LIRPrinter implements LIRVisitor {
 	@Override
 	public Object visit(UnaryLogical unaryOp) {
 
+		/* Possible optimization:
+		 * 		!!!!!!!!something
+		 * would be just be a long list of NOT Rx, always
+		 * the same x. count them and either remove is even
+		 * or replace with just one if odd.
+		 */
+		
 		StringBuilder sb = new StringBuilder();
 		
 		sb.append(unaryOp.getOperation().getDescription());
