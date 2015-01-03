@@ -85,6 +85,7 @@ import LIR.Instructions.Operand;
 import LIR.Instructions.Register;
 import LIR.Instructions.RegisterOffset;
 import LIR.Instructions.UnaryArithmetic;
+import LIR.Instructions.UnaryLogical;
 
 public class TranslateIC2LIR implements Visitor {
 
@@ -121,6 +122,22 @@ public class TranslateIC2LIR implements Visitor {
 	
 	//add LIR instructions as you traverse through the AST:
 	private List<LIRInstruction> currentMethodInstructions = null;
+	
+	//when calculating complex condition, toggle this to indicate if
+	//we operating under an odd number of negations ("take negation")
+	//or an even number of negations ("ignore negation").
+	//for example for the condition: !(a < b) simply ask a >= b.
+	//for more complicated conditions, using logical and/or, use de-morgan's
+	//law: !(cond1 || cond2) is !cond1 && !cond2
+	//	   !(cond1 && cond2) is !cond1 || !cond2
+	//
+	//more complicated example:
+	//		!(a < b) && !((c < d) || !(e < f)))
+	//is actually:
+	//		(a >= b) && ((c >= d) && (e < f))
+	//where (e < f) is under two negations, so the negations are
+	//"cancelled out".
+	private boolean negateCondition = false;
 	
 	//save for each while (could be nested!) currentMethodInstructions
 	//index of where it was when it began. Will be used to write back
@@ -1599,6 +1616,25 @@ public class TranslateIC2LIR implements Visitor {
 		Operand op1 = (Operand)binaryOp.getFirstOperand().accept(this);
 		Operand op2 = (Operand)binaryOp.getSecondOperand().accept(this);
 		
+		if (binaryOp.getNodeType() instanceof IC.Semantics.Types.PrimitiveType &&
+				((IC.Semantics.Types.PrimitiveType)binaryOp.getNodeType()).getType() == DataTypes.STRING) {
+			
+			//we've validated types already - if on operand is string
+			//both are and this is a PLUS operation (i.e. string concatenation)
+			
+			LibraryCall call = new LibraryCall(binaryOp, "__stringCat", null);
+			//TODO: not necessarily basic operands :(
+			call.addParameter((BasicOperand)op1);
+			call.addParameter((BasicOperand)op2);
+
+			Register reg = RegisterPool.get(binaryOp);
+			call.setReturnRegister(reg);
+			currentMethodInstructions.add(call);
+			
+			return reg;
+			
+		}
+		
 		boolean op1Imm = false;
 		boolean op2Imm = false;
 		
@@ -1676,8 +1712,6 @@ public class TranslateIC2LIR implements Visitor {
 					((Register)op2).getNum() != result.getNum())
 				currentMethodInstructions.add(new Move(binaryOp, op2, result));	
 		}
-
-		//TODO: handle addition of strings (concatenation)
 		
 		BinaryOps op = null;
 		if (binaryOp.getOperator() == IC.BinaryOps.PLUS) {
@@ -1720,6 +1754,7 @@ public class TranslateIC2LIR implements Visitor {
 		
 		if (!binaryOp.getOperator().isLogicalOperation()) {
 			
+			//TODO: op1 might be register offset
 			Operand op1 = (Operand)binaryOp.getFirstOperand().accept(this);
 			//TODO: op2 not necessarily basic operand
 			BasicOperand op2 = (BasicOperand)binaryOp.getSecondOperand().accept(this);
@@ -1752,35 +1787,63 @@ public class TranslateIC2LIR implements Visitor {
 			IC.BinaryOps op = binaryOp.getOperator();
 			JumpOps jump = null;
 						
-			//NOTE: condition is op1 * op2 (where * is <, <=, >, >=)
+			//NOTE: condition is op1 @ op2 (where @ is <, <=, >, >=)
 			//		lir asks about op-op1 value, so basically it does
-			//		0 * op2-op1
+			//		0 @ op2-op1
 			//		consider when to jump in that case (when condition
 			//		DOES NOT hold!)
 			
 			if (op.isSizeComparisonOperation()) {
 				if (op == IC.BinaryOps.LT) {
-					//0 < op2-op1; complementary: 0 >= op2-op1
-					jump = JumpOps.JumpLE;
+					if (!negateCondition) {
+						//0 < op2-op1; complementary: 0 >= op2-op1
+						jump = JumpOps.JumpLE;
+					} else {
+						//0 >= op2-op1; negation is: 0 < op2-op1
+						jump = JumpOps.JumpGT;
+					}
 				} else if (op == IC.BinaryOps.LTE){
-					//0 <= op2-op1; complementary: 0 > op2-op1
-					jump = JumpOps.JumpLT;
+					if (!negateCondition) {
+						//0 <= op2-op1; complementary: 0 > op2-op1
+						jump = JumpOps.JumpLT;
+					} else {
+						//0 > op2-op1; negation is: 0 <= op2-op1
+						jump = JumpOps.JumpGE;
+					}
 				} else if (op == IC.BinaryOps.GT){
-					//0 > op2-op1; complementary: 0 <= op2-op1
-					jump = JumpOps.JumpGE;
+					if (!negateCondition) {
+						//0 > op2-op1; complementary: 0 <= op2-op1
+						jump = JumpOps.JumpGE;
+					} else {
+						//0 <= op2-op1; negation is 0 > op2-op1
+						jump = JumpOps.JumpLT;
+					}
 				} else if (op == IC.BinaryOps.GTE){
-					//0 >= op2-op1; complementary: 0 < op2-op1
-					jump = JumpOps.JumpGT;
+					if (!negateCondition) {
+						//0 >= op2-op1; complementary: 0 < op2-op1
+						jump = JumpOps.JumpGT;
+					} else {
+						//0 < op2-op1; negation is 0 >= op2-op1
+						jump = JumpOps.JumpLE;
+					}
 				}
 			} else if (op.isEqualityOperation()) {
 				if (op == IC.BinaryOps.EQUAL) { //this one's tricky - careful!!
-					//if (a == b) then compare = a-b = 0. Jump when false
-					//0 == b-a --> true; complementary: false
-					jump = JumpOps.JumpFalse;
+					if (!negateCondition) {
+						//if (a == b) then compare = a-b = 0. Jump when false
+						//0 == b-a --> true; complementary: false
+						jump = JumpOps.JumpFalse;
+					} else {
+						jump = JumpOps.JumpTrue;
+					}
 				} else {
-					//compare = a-b != 0 when a!=b, so if compare = 0,
-					//a == b, jump (condition not met)
-					jump = JumpOps.JumpTrue;
+					if (!negateCondition) {
+						//compare = a-b != 0 when a!=b, so if compare = 0,
+						//a == b, jump (condition not met)
+						jump = JumpOps.JumpTrue;
+					} else {
+						jump = JumpOps.JumpFalse;
+					}
 				}
 			}
 			
@@ -1803,65 +1866,138 @@ public class TranslateIC2LIR implements Visitor {
 
 		} else { //op.isEquality() == true
 			
-			//TODO: not necessary BasicOperand!
+			//TODO: not necessarily BasicOperand!
+			
+			boolean operand1IsConditional = (binaryOp.getFirstOperand() instanceof LogicalBinaryOp);
+			if (!operand1IsConditional) {
+				//could still be unary... however, could be something
+				//crazy such as !!!!!!!!!(a op b) or !!!!!!!!b
+				//we only want to mark the first case as conditional,
+				//the second case would return register value...
+				Expression op1expr = binaryOp.getFirstOperand();
+				while (op1expr instanceof LogicalUnaryOp || op1expr instanceof ExpressionBlock) {
+					if (op1expr instanceof LogicalUnaryOp)
+						op1expr = ((LogicalUnaryOp)op1expr).getOperand();
+					else
+						op1expr = ((ExpressionBlock)op1expr).getExpression();
+				}
+				operand1IsConditional = (op1expr instanceof LogicalBinaryOp);
+			}
+			
+			//when operand1 is conditional (we're evaluating a complex condition:
+			//		(cond1 op cond2) op cond3 etc...
+			//if OR instruction: if the 1st operand fails (is false), don't give
+			//up, give it another chance: don't jump to condition's false label
+			//but to a new label "mid-way" so that we can give the 2nd operand
+			//a chance to take this condition to true. However, if AND instruction,
+			//we only get one strike...
+			
+			boolean orOperation = (binaryOp.getOperator() == IC.BinaryOps.LOR);
+			if (negateCondition)
+				orOperation = !orOperation; //if AND do OR; if OR do AND.
+			
+			Label originalFalseLabel = jumpToLabelIfConditionIsFalse;
+			Label secondOperandLabel = null;
+			
+			Label endLabel = LabelMaker.get(binaryOp,
+					LabelMaker.labelString(currentClass, currentMethod, "_or_end_label"));
+			
+			if (orOperation && operand1IsConditional) {
 
+				secondOperandLabel = LabelMaker.get(
+						binaryOp, LabelMaker.labelString(currentClass, currentMethod, "_or_label"));
+				jumpToLabelIfConditionIsFalse = secondOperandLabel;
+				
+			}
+
+			Register reg1 = null; 
+			Register reg2 = null;
+			
 			BasicOperand op1 = (BasicOperand)binaryOp.getFirstOperand().accept(this);
-			Register reg1;
-			if (op1 instanceof Register)
-				reg1 = (Register)op1;
-			else {
-				reg1 = RegisterPool.get(binaryOp);
-				currentMethodInstructions.add(new Move(binaryOp, op1, reg1));
+			
+			if (op1 == null) {
+				//binaryOp.getFirstOperand() is LogicalBinary/UnaryOperation
+				//--> list of instructions; at the end of their execution, if
+				//condition holds (true), we execute next instruction. if
+				//condition is false, then we jump to label
+				//(for OR, secondOperandLabel; for AND jumpToLabelIfConditionIsFalse)
+				
+				//if AND instruction --> nothing else to do, we jumped to correct place.
+				//if OR instruction --> jump to end (condition holds), put label and
+				//						try the second operand:
+				
+				if (orOperation) {
+					currentMethodInstructions.add(new Jump(binaryOp, JumpOps.Jump, endLabel));
+					currentMethodInstructions.add(secondOperandLabel);
+					jumpToLabelIfConditionIsFalse = originalFalseLabel;					
+				}
+				
+			} else {
+				
+				if (op1 instanceof Register)
+					reg1 = (Register)op1;
+				else {
+					reg1 = RegisterPool.get(binaryOp);
+					currentMethodInstructions.add(new Move(binaryOp, op1, reg1));
+
+					currentMethodInstructions.add(new BinaryLogical(binaryOp,
+							BinaryOps.Compare,
+							new ConstantInteger(binaryOp,
+									orOperation ? 1 : 0),
+							reg1));
+				}
+
+				currentMethodInstructions.add(new Jump(binaryOp, JumpOps.JumpTrue, jumpToLabelIfConditionIsFalse));
+				
 			}
 			
-			currentMethodInstructions.add(new BinaryLogical(binaryOp,
-					BinaryOps.Compare,
-					new ConstantInteger(binaryOp,
-							binaryOp.getOperator() == IC.BinaryOps.LOR ? 1 : 0),
-					reg1));
-						
-			currentMethodInstructions.add(new Jump(binaryOp, JumpOps.JumpTrue, jumpToLabelIfConditionIsFalse));
-
 			BasicOperand op2 = (BasicOperand)binaryOp.getSecondOperand().accept(this);
-			Register reg2;
-			if (op2 instanceof Register)
-				reg2 = (Register)op2;
-			else {
-				reg2 = RegisterPool.get(binaryOp);
-				currentMethodInstructions.add(new Move(binaryOp, op2, reg2));
+			
+			if (op2 == null) {
+				//binaryOp.getSecondOperand() is LogicalBinary/UnaryOperation
+				//--> list of instructions; at the end of their execution,
+				//if condition holds (true), we execute next instruction.
+				//if condition is false, then we jump to label.
+			} else {
+				
+				if (op2 instanceof Register)
+					reg2 = (Register)op2;
+				else {
+					reg2 = RegisterPool.get(binaryOp);
+					currentMethodInstructions.add(new Move(binaryOp, op2, reg2));
+				}
+				
+				//Compare = (R2 == true)
+				currentMethodInstructions.add(new BinaryLogical(binaryOp,
+						BinaryOps.Compare,
+						new ConstantInteger(binaryOp, 1),
+						reg2));
+				
+				//Jump to false label if R2 is false
+				currentMethodInstructions.add(new Jump(binaryOp, JumpOps.JumpTrue, jumpToLabelIfConditionIsFalse));
+				
+				if (reg1 != null)
+					RegisterPool.putback(reg1);
+				if (reg2 != null)
+					RegisterPool.putback(reg2);
+				
+				if (op1 instanceof Register) {
+					if (binaryOp.getFirstOperand() instanceof MathBinaryOp ||
+							binaryOp.getFirstOperand() instanceof MathUnaryOp) {
+								RegisterPool.putback((Register)op1);
+							}
+				}
+	
+				if (op2 instanceof Register) {
+					if (binaryOp.getSecondOperand() instanceof MathBinaryOp ||
+							binaryOp.getSecondOperand() instanceof MathUnaryOp) {
+								RegisterPool.putback((Register)op1);
+							}
+				}
 			}
 			
-			//AND R2,R1 (R1 := R2 AND R1)
-			currentMethodInstructions.add(new BinaryLogical(binaryOp,
-					(binaryOp.getOperator() == IC.BinaryOps.LOR
-						? BinaryOps.Or : BinaryOps.And),
-					reg2, reg1));
-			
-			//Compare = (R1 == false)
-			currentMethodInstructions.add(new BinaryLogical(binaryOp,
-					BinaryOps.Compare,
-					new ConstantInteger(binaryOp, 0),
-					reg1));
-			
-			//Jump to false label if R1 is false
-			currentMethodInstructions.add(new Jump(binaryOp, JumpOps.JumpTrue, jumpToLabelIfConditionIsFalse));
-			
-			RegisterPool.putback(reg1);
-			RegisterPool.putback(reg2);
-			
-			if (op1 instanceof Register) {
-				if (binaryOp.getFirstOperand() instanceof MathBinaryOp ||
-						binaryOp.getFirstOperand() instanceof MathUnaryOp) {
-							RegisterPool.putback((Register)op1);
-						}
-			}
-
-			if (op2 instanceof Register) {
-				if (binaryOp.getSecondOperand() instanceof MathBinaryOp ||
-						binaryOp.getSecondOperand() instanceof MathUnaryOp) {
-							RegisterPool.putback((Register)op1);
-						}
-			}
+			if (operand1IsConditional && orOperation)
+				currentMethodInstructions.add(endLabel);
 
 		}
 
@@ -1870,14 +2006,125 @@ public class TranslateIC2LIR implements Visitor {
 
 	@Override
 	public Object visit(MathUnaryOp unaryOp) {
-		// TODO Auto-generated method stub.
-		return null;
+
+		//this is simply -Expr...
+				
+		Operand operand = (Operand)unaryOp.getOperand().accept(this);
+		
+		Register reg = null;
+		if (operand instanceof BasicOperand) {
+			
+			if (operand instanceof Register) {
+				
+				boolean registerStillInUse = true; //default assume the worse (cannot reuse);
+				if (unaryOp.getOperand() instanceof MathBinaryOp ||
+						unaryOp.getOperand() instanceof MathUnaryOp) {
+					registerStillInUse = false; //we can dispose intermediate value
+				} else if (variables.getSymbol((Register)operand) != null) {
+					if (isSymbolNoLongerInUse(variables.getSymbol((Register)operand))) {
+						registerStillInUse = false;
+					}
+				}
+				
+				if (!registerStillInUse)
+					RegisterPool.putback((Register)operand);
+				
+				reg = RegisterPool.get(unaryOp);
+						
+			} else if (operand instanceof ConstantInteger) {
+				return new ConstantInteger(unaryOp,
+						-((ConstantInteger)operand).getValue());
+			} else {
+				//move value to register:
+				reg = RegisterPool.get(unaryOp);
+				currentMethodInstructions.add(new Move(unaryOp, operand, reg));
+			}
+			
+		} else if (operand instanceof LIR.Instructions.ArrayLocation) {
+			reg = RegisterPool.get(unaryOp);
+			currentMethodInstructions.add(new ArrayLoad(unaryOp,
+					(LIR.Instructions.ArrayLocation)operand, reg));			
+		} else if (operand instanceof RegisterOffset) {
+			reg = RegisterPool.get(unaryOp);
+			currentMethodInstructions.add(new FieldLoad(unaryOp,
+					(RegisterOffset)operand, reg));			
+		}
+		
+		currentMethodInstructions.add(new UnaryArithmetic(unaryOp, UnaryOps.Neg, reg));
+		
+		return reg;
 	}
 
 	@Override
 	public Object visit(LogicalUnaryOp unaryOp) {
-		// TODO Auto-generated method stub.
-		return null;
+
+		//!expr
+		
+		//if !!!!!!(binaryOperation) simply toggle negation switch:
+		Expression expr = unaryOp.getOperand();
+		boolean toggled = false;
+		while (expr instanceof LogicalUnaryOp || expr instanceof ExpressionBlock) {
+			if (expr instanceof LogicalUnaryOp)
+				expr = ((LogicalUnaryOp)expr).getOperand();
+			else
+				expr = ((ExpressionBlock)expr).getExpression();
+		}
+		if (expr instanceof LogicalBinaryOp) {
+			toggled = true;
+			negateCondition = !negateCondition;
+		}
+
+		Operand operand = (Operand)unaryOp.getOperand().accept(this);
+		
+		if (toggled) {
+			//toggle back:
+			negateCondition = !negateCondition;
+		}
+		
+		Register reg = null;
+		if (operand == null) {
+			return null;
+		} else if (operand instanceof BasicOperand) {
+			
+			if (operand instanceof Register) {
+				
+				boolean registerStillInUse = true; //default assume the worse (cannot reuse);
+				if (unaryOp.getOperand() instanceof LogicalBinaryOp ||
+						unaryOp.getOperand() instanceof LogicalUnaryOp) {
+					registerStillInUse = false; //we can dispose intermediate value
+				} else if (variables.getSymbol((Register)operand) != null) {
+					if (isSymbolNoLongerInUse(variables.getSymbol((Register)operand))) {
+						registerStillInUse = false;
+					}
+				}
+				
+				if (!registerStillInUse)
+					RegisterPool.putback((Register)operand);
+				
+				reg = RegisterPool.get(unaryOp);
+						
+			} else if (operand instanceof ConstantInteger) {
+				//true is 1, false is 0 ; !true=1-1=0=false, !false=1-0=1=true
+				return new ConstantInteger(unaryOp,
+						1-((ConstantInteger)operand).getValue());
+			} else {
+				//move value to register:
+				reg = RegisterPool.get(unaryOp);
+				currentMethodInstructions.add(new Move(unaryOp, operand, reg));
+			}
+		} else if (operand instanceof LIR.Instructions.ArrayLocation) {
+			reg = RegisterPool.get(unaryOp);
+			currentMethodInstructions.add(new ArrayLoad(unaryOp,
+					(LIR.Instructions.ArrayLocation)operand, reg));			
+		} else if (operand instanceof RegisterOffset) {
+			reg = RegisterPool.get(unaryOp);
+			currentMethodInstructions.add(new FieldLoad(unaryOp,
+					(RegisterOffset)operand, reg));			
+		}
+		
+		currentMethodInstructions.add(new UnaryLogical(unaryOp, reg));
+		
+		return reg;
 	}
 
 	@Override
@@ -1901,8 +2148,7 @@ public class TranslateIC2LIR implements Visitor {
 
 	@Override
 	public Object visit(ExpressionBlock expressionBlock) {
-		// TODO Auto-generated method stub.
-		return null;
+		return expressionBlock.getExpression().accept(this);
 	}
 
 }
