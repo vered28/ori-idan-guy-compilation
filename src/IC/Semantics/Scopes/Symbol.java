@@ -17,7 +17,7 @@ public class Symbol {
 	
 	private Statement lastStatementUsed = null;
 	private Expression lastExpressionUsed = null;
-	
+		
 	public Symbol(String id, Type type, Kind kind, ASTNode node) {
 		this.id = id;
 		this.type = type;

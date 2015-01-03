@@ -1,7 +1,7 @@
 package LIR.Instructions;
 
-import IC.UnaryOps;
 import IC.AST.ASTNode;
+import LIR.UnaryOps;
 
 public class UnaryArithmetic extends UnaryInstruction {
 	

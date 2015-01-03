@@ -60,7 +60,17 @@ public class UserType extends Type {
 		}
 
 		UserType type = (UserType)obj;
-		return super.equals(obj) && name.equals(type.getName());
+		
+		//ignore arrays in names:
+		
+		String name1 = name;
+		String name2 = type.getName();
+		if (name1.indexOf('[') > 0)
+			name1 = name1.substring(0, name1.indexOf('['));
+		if (name2.indexOf('[') > 0)
+			name2 = name2.substring(0, name2.indexOf('['));
+
+		return super.equals(obj) && name1.equals(name2);
 	}
 
 	@Override

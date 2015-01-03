@@ -43,6 +43,7 @@ import IC.AST.While;
 import IC.Semantics.Exceptions.SemanticError;
 import IC.Semantics.Scopes.BlockScope;
 import IC.Semantics.Scopes.ClassScope;
+import IC.Semantics.Scopes.ExtendedSymbol;
 import IC.Semantics.Scopes.Kind;
 import IC.Semantics.Scopes.MethodScope;
 import IC.Semantics.Scopes.ProgramScope;
@@ -118,7 +119,7 @@ public class ScopesTypesBuilder implements Visitor {
 			childScope.setParentScope(scope);
 			
 			try {
-				scope.addToScope(new Symbol(cls.getName(),
+				scope.addToScope(new ExtendedSymbol(cls.getName(),
 						new IC.Semantics.Types.UserType(cls.getName(), cls),
 						Kind.CLASS,
 						cls));
@@ -186,7 +187,7 @@ public class ScopesTypesBuilder implements Visitor {
 		try {
 			
 			field.getEnclosingScope().addToScope(
-					new Symbol(field.getName(),
+					new ExtendedSymbol(field.getName(),
 							(Type)field.getType().accept(this), //will add to type table
 							Kind.FIELD,
 							field));

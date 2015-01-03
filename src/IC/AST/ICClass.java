@@ -92,6 +92,7 @@ public class ICClass extends ASTNode {
 	}
 	
 	public boolean subClassOf(ICClass icClass) {
+
 		if (name.equals(icClass.getName())) {
 			return true;
 		}

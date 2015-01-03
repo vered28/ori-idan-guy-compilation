@@ -1,6 +1,10 @@
 package LIR.Translation;
 
+import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.Stack;
 
@@ -40,7 +44,9 @@ import IC.AST.VirtualCall;
 import IC.AST.VirtualMethod;
 import IC.AST.Visitor;
 import IC.AST.While;
+import IC.Semantics.Scopes.ExtendedSymbol;
 import IC.Semantics.Scopes.Kind;
+import IC.Semantics.Scopes.Scope;
 import IC.Semantics.Scopes.ScopesTraversal;
 import IC.Semantics.Scopes.Symbol;
 
@@ -51,36 +57,53 @@ public class SymbolLastUsed implements Visitor {
 	 * This will help us know when translating to LIR when
 	 * registers are "dead" and can be reused. */
 	
+	private ICClass currentClass = null;
+	private Method currentMethod = null;
 	private Statement currentStatement = null;
 	private Stack<Expression> currentExpression = new Stack<Expression>();
 	
 	//look for instance at the following code:
 	//while (x < 10)
-	//	x = x + 1;
+	//	x = x + y;
 	//the assignment is a later statement in which x is used,
 	//but in reality the condition will always be the last
 	//expression / statement to be executed, therefore we
 	//must mark x variable as being last used by the condition!
-	private Set<Symbol> symbolsUsedInWhileCondition = new HashSet<Symbol>();
-	//while loops may be nested, so we'd also like to keep a
-	//set just for the "current" while loop condition so when
-	//we exit a nested loop, we know that variables used in
-	//the outter loop condition are still last used by the
-	//condition:
-	private Set<Symbol> symbolsUsedInCurrentWhileCondition = null;
+	//also, y is used in every iteration, don't mark it as last
+	//used by the assignment, but by the loop!:
+	private Set<Symbol> symbolsUsedInCurrentWhileLoop = null;
+	
 	private boolean whileCondition = false;
+
+	//while loops may be nested:
+	private Map<Symbol, Integer> symbolsUsedInWhileLoop = new HashMap<Symbol, Integer>();
 	private Stack<Boolean> whileLoop = new Stack<Boolean>();
 	
-	//flag is false for instance for assignment (x = something()),
-	//x isn't read so don't consider it as being used. If nowhere
-	//else in the scope where x was declared x is read (i.e. y = x)
-	//then it is simply an unused variable. We shouldn't produce
-	//LIR code for it.
-	private boolean considerAsUsed = true;
+	//first basic operand to appear in while condition, if never
+	//used before the condition, will be taken as memory value,
+	//not register value. So don't mark it as being used (since
+	//not loaded to register):
+	private boolean considerAsUsedIfAlreadyUsed = false;
+	
+	private Symbol findSymbol(String id, List<Kind> kinds, Scope scope, int aboveLine) {
+		return findSymbol(id, kinds, scope, aboveLine, false);
+	}
+
+	private Symbol findSymbol(String id, List<Kind> kinds, Scope scope, int aboveLine, boolean onlyCheckMethodScope) {
 		
+		Symbol symbol;
+		for (Kind k : kinds) {
+			if ((symbol = ScopesTraversal.findSymbol(id, k, scope, aboveLine, onlyCheckMethodScope)) != null)
+				return symbol;
+		}
+
+		return null;
+	}
+
 	@Override
 	public Object visit(Program program) {
 		for (ICClass cls : program.getClasses()) {
+			currentClass = cls;
 			cls.accept(this);
 		}
 		return null;
@@ -89,6 +112,7 @@ public class SymbolLastUsed implements Visitor {
 	@Override
 	public Object visit(ICClass icClass) {
 		for (Method method : icClass.getMethods()) {
+			currentMethod = method;
 			method.accept(this);
 		}
 		return null;
@@ -144,15 +168,8 @@ public class SymbolLastUsed implements Visitor {
 
 	@Override
 	public Object visit(Assignment assignment) {
-		
-		//don't mark left-hand part as "used" (it is only
-		//written to, not read from. should it be read from later,
-		//that it would be considered used).
-		considerAsUsed = false;
-		assignment.getAssignment().accept(this);
-		considerAsUsed = true;
-		
 		assignment.getVariable().accept(this);
+		assignment.getAssignment().accept(this);		
 		return null;
 	}
 
@@ -191,45 +208,57 @@ public class SymbolLastUsed implements Visitor {
 
 	@Override
 	public Object visit(While whileStatement) {
+				
+		//store existing symbols in set:
+		//		while (x) while(y) { ... }
+		//we are now in while(y), and need to preserve symbolsUsedInCurrentWhileLoop for
+		//while(x) loop, which may not have finished yet (there could be some code
+		//after inner loop finishes)
+		Set<Symbol> outerWhileSymbols = null;
+		if (symbolsUsedInCurrentWhileLoop != null)
+			outerWhileSymbols = new HashSet<Symbol>(symbolsUsedInCurrentWhileLoop);
+
+		//initialize set for current loop:
+		symbolsUsedInCurrentWhileLoop = new HashSet<Symbol>();
 		
-		currentExpression.push(whileStatement.getCondition());
-		
-		//set flag to notify expressions that they should add symbols
-		//to the symbolsUsedInCurrentWhileCondition set:
-		whileCondition = true;
-		symbolsUsedInCurrentWhileCondition = new HashSet<Symbol>();
-		
-		whileStatement.getCondition().accept(this);
-		
-		//add all symbols from this condition to all symbols from
-		//other while loops that are still being executed
-		// (i.e. while(condition1) { while (condition2) ... and so on } } 
-		symbolsUsedInWhileCondition.addAll(
-				symbolsUsedInCurrentWhileCondition);
-		
-		//save a local copy of this while loop's condition symbols:
-		//(symbolsUsedInCurrentWhileCondition will be overriden by any
-		// nested loop):
-		Set<Symbol> thisWhileConditionSymbols = new HashSet<Symbol>(symbolsUsedInCurrentWhileCondition);
-		
-		whileCondition = false;
-		currentExpression.pop();
-		
-		//while inside loop operation, don't mark symbols existing in
-		//symbolsUsedInWhileCondition as used:
+		//while inside loop, don't mark symbols existing in
+		//symbolsUsedInWhileLoop as used:
 		whileLoop.push(true);
-		
-		currentStatement = whileStatement.getOperation();
+
+		whileCondition = true;
+		whileStatement.getCondition().accept(this);
+		whileCondition = false;
+				
+		//run operation:
 		whileStatement.getOperation().accept(this);
-		currentStatement = whileStatement;
 		
+		//mark all symbols used as last used by while:
+		for (Symbol symbol : (outerWhileSymbols == null ? symbolsUsedInWhileLoop.keySet() : symbolsUsedInCurrentWhileLoop)) {
+			
+			int count = symbolsUsedInWhileLoop.get(symbol);
+			if (count > 0)
+				symbolsUsedInWhileLoop.put(symbol, count-1);
+						
+			if (symbol instanceof ExtendedSymbol) {
+				ExtendedSymbol extended = (ExtendedSymbol)symbol;
+				extended.setLastStatementUsed(currentMethod, whileStatement);
+				extended.setLastExpressionUsed(currentMethod, null);
+			} else {
+				symbol.setLastStatementUsed(whileStatement);
+				symbol.setLastExpressionUsed(null);
+			}
+		}
+				
 		whileLoop.pop();
 		
-		//remove current loop condition symbols from overall
-		//condition symbols:
-		symbolsUsedInWhileCondition.removeAll(
-				thisWhileConditionSymbols);
-		
+		//restore outer loop symbols:
+		if (outerWhileSymbols != null)
+			symbolsUsedInCurrentWhileLoop = new HashSet<Symbol>(outerWhileSymbols);
+		else {
+			symbolsUsedInCurrentWhileLoop = null;
+			symbolsUsedInWhileLoop.clear();
+		}
+			
 		return null;
 	}
 
@@ -265,41 +294,110 @@ public class SymbolLastUsed implements Visitor {
 	public Object visit(VariableLocation location) {
 		
 		if (location.isExternal()) {
+			//don't worry about internals of externals...
+			//in order to access another object's fields, we'd have
+			//to have the object itself in use (i.e A a = new A(); a.field = x; )
+			//worry only that a is used.
 			location.getLocation().accept(this);
 		} else {
 		
-			if (!considerAsUsed)
-				return null;
-			
-			Symbol sym =
-					ScopesTraversal.findSymbol(location.getName(), Kind.VARIABLE,
+			Symbol sym = findSymbol(location.getName(),
+							Arrays.asList(new Kind[] { Kind.VARIABLE, Kind.FORMAL, Kind.FIELD }),
 							location.getEnclosingScope(),
-							location.getLine(),
-							true /*variables only declared in method scope*/);
+							location.getLine());
+			
 			if (sym != null) {
 				
-				//only mark this statement / exprsssion as last using the local
+				//only mark this statement / expression as last using the local
 				//variable if not inside a while loop or if inside a while loop
 				//but symbol is not used in while condition:
-				if (whileLoop.isEmpty() ||
-						(!whileLoop.isEmpty() && !symbolsUsedInWhileCondition.contains(sym))) {
-					
-					sym.setLastStatementUsed(currentStatement);
-					if (!currentExpression.isEmpty()) {
-						sym.setLastExpressionUsed(currentExpression.peek());
+				//(or it is marked to ignore for consideration):
+				boolean used = ((sym instanceof ExtendedSymbol &&
+						((ExtendedSymbol)sym).getLastStatementUsed(currentMethod) != null)
+						|| (!(sym instanceof ExtendedSymbol) &&sym.getLastStatementUsed() != null));
+				
+				//check if we need DV_PTR (using field that wasn't used before)
+				boolean unusedFieldAccess = (sym.getKind() == Kind.FIELD && !used);
+				ExtendedSymbol classSymbol = null;
+				if (unusedFieldAccess) {
+					 classSymbol = (ExtendedSymbol)
+							ScopesTraversal.findSymbol(
+							currentClass.getName(),
+							Kind.CLASS, location.getEnclosingScope());
+				}
+
+				
+				if ((whileLoop.isEmpty() ||
+						(!whileLoop.isEmpty() && !symbolsUsedInWhileLoop.containsKey(sym))) &&
+						(!whileCondition ||
+								(whileCondition && (!considerAsUsedIfAlreadyUsed ||
+										(considerAsUsedIfAlreadyUsed && used))))) {						
+										
+					if (sym instanceof ExtendedSymbol) {
+
+						ExtendedSymbol extended = (ExtendedSymbol)sym;
+						extended.setLastStatementUsed(currentMethod, currentStatement);
+						if (!currentExpression.isEmpty()) {
+							extended.setLastExpressionUsed(currentMethod, currentExpression.peek());
+						} else {
+							//currentStatement is more advanced than expression,
+							//last expression used is residue from old usage,
+							//remove it:
+							extended.setLastExpressionUsed(currentMethod, null);
+						}
+
 					} else {
-						//currentStatement is more advanced than expression,
-						//last expression used is residue from old usage,
-						//remove it:
-						sym.setLastExpressionUsed(null);
+					
+						sym.setLastStatementUsed(currentStatement);
+						if (!currentExpression.isEmpty()) {
+							sym.setLastExpressionUsed(currentExpression.peek());
+						} else {
+							//currentStatement is more advanced than expression,
+							//last expression used is residue from old usage,
+							//remove it:
+							sym.setLastExpressionUsed(null);
+						}
+						
+					}
+					
+					if (classSymbol != null) {
+						classSymbol.setLastStatementUsed(currentMethod, currentStatement);
+						if (!currentExpression.isEmpty()) {
+							classSymbol.setLastExpressionUsed(currentMethod, currentExpression.peek());
+						} else {
+							classSymbol.setLastExpressionUsed(currentMethod, null);
+						}
 					}
 					
 				}
 				
-				//if inside while condition, add symbol to current condition symbols:
-				if (whileCondition) {
-					symbolsUsedInCurrentWhileCondition.add(sym);
+				//mark symbols within loop condition or operation (so their last statement
+				//used will be currentWhileLoop), unless their first operand of condition,
+				//in which case they won't be registered at this point, so don't save it
+				//as last used (see translation to understand why first operand is special)
+				if (!whileLoop.isEmpty() && 
+						(!considerAsUsedIfAlreadyUsed ||
+								(considerAsUsedIfAlreadyUsed && used))) {
+
+					Symbol[] symbols = (classSymbol == null ?
+							new Symbol[] { sym } :
+								new Symbol[] { sym, classSymbol });
+					
+					for (Symbol symbol : symbols) {
+					
+						symbolsUsedInCurrentWhileLoop.add(symbol);
+						
+						if (symbolsUsedInWhileLoop.containsKey(symbol)) {
+							int count = symbolsUsedInWhileLoop.get(symbol);
+							symbolsUsedInWhileLoop.put(symbol, count+1);
+						} else {
+							symbolsUsedInWhileLoop.put(symbol, 1);
+						}
+						
+					}
+					
 				}
+				
 			}
 			
 		}
@@ -327,8 +425,36 @@ public class SymbolLastUsed implements Visitor {
 	@Override
 	public Object visit(VirtualCall call) {
 		
-		if (call.isExternal())
+		if (call.isExternal()) {
+			//don't worry about internals of externals:
+			//a.foo()
+			//just need to check if a is used or not
 			call.getLocation().accept(this);
+		} else {
+		
+			 ExtendedSymbol classSymbol = (ExtendedSymbol)
+						ScopesTraversal.findSymbol(
+						currentClass.getName(),
+						Kind.CLASS, call.getEnclosingScope());
+			 
+			 if (whileLoop.isEmpty()) {
+				 //not inside loop:
+				 classSymbol.setLastStatementUsed(currentMethod, currentStatement);
+				 classSymbol.setLastExpressionUsed(currentMethod, call);
+			 } else {
+				 
+				symbolsUsedInCurrentWhileLoop.add(classSymbol);
+					
+				if (symbolsUsedInWhileLoop.containsKey(classSymbol)) {
+					int count = symbolsUsedInWhileLoop.get(classSymbol);
+					symbolsUsedInWhileLoop.put(classSymbol, count+1);
+				} else {
+					symbolsUsedInWhileLoop.put(classSymbol, 1);
+				}
+
+			 }
+		}
+
 		
 		for (Expression expr : call.getArguments()) {
 			currentExpression.push(expr);
@@ -371,7 +497,10 @@ public class SymbolLastUsed implements Visitor {
 
 	@Override
 	public Object visit(LogicalBinaryOp binaryOp) {
+		considerAsUsedIfAlreadyUsed =
+				(!considerAsUsedIfAlreadyUsed && whileCondition);
 		binaryOp.getFirstOperand().accept(this);
+		considerAsUsedIfAlreadyUsed = false;
 		binaryOp.getSecondOperand().accept(this);
 		return null;
 	}
@@ -384,7 +513,10 @@ public class SymbolLastUsed implements Visitor {
 
 	@Override
 	public Object visit(LogicalUnaryOp unaryOp) {
+		considerAsUsedIfAlreadyUsed = 
+				(!considerAsUsedIfAlreadyUsed && whileCondition);
 		unaryOp.getOperand().accept(this);
+		considerAsUsedIfAlreadyUsed = false;
 		return null;
 	}
 
