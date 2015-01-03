@@ -2,10 +2,10 @@ package LIR.Instructions;
 
 import IC.AST.ASTNode;
 
-public class ConstantNull extends Immediate {
+public class ConstantNull extends ConstantInteger {
 
 	public ConstantNull(ASTNode node) {
-		super(node);
+		super(node, 0);
 	}
 
 	@Override

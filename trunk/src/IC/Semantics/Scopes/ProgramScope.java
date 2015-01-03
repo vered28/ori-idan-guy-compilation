@@ -40,5 +40,9 @@ public class ProgramScope extends Scope {
 	public Object accept(ScopesVisitor visitor) {
 		return visitor.visit(this);
 	}
+	
+	public boolean hasLibrary() {
+		return hasLibrary;
+	}
 
 }

@@ -278,7 +278,7 @@ public class TypesValidation implements Visitor {
 	public Object visit(UserType type) {
 		Type semanticType = ((ClassTypeEntry)typeTable.get(type.getName()))
 				.getUserType();
-		
+				
 		Type resultType = semanticType.clone();
 		resultType.setDimension(type.getDimension());
 		

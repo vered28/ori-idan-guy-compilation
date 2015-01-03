@@ -13,7 +13,7 @@ public class StringLiteralSet extends HashSet<StringLiteral> {
 	 * Since we built the set in one sequential run of the AST tree,
 	 * we can use average and amortized analysis to assume better
 	 * running time. */
-	
+		
 	public boolean add(Literal literal) {
 		
 		if (contains(literal.getValue() + ""))
@@ -26,8 +26,8 @@ public class StringLiteralSet extends HashSet<StringLiteral> {
 	@Override
 	public boolean add(StringLiteral e) {
 		
-		if (contains(e))
-			return false;
+//		if (contains(e))
+//			return false;
 		
 		return super.add(e);
 	}

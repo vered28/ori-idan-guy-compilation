@@ -29,6 +29,10 @@ public class VirtualCall extends Call {
 		return params.get(mem);
 	}
 	
+	public Map<Memory, BasicOperand> getParameters() {
+		return params;
+	}
+	
 	public void addParameter(Memory mem, BasicOperand param) {
 		params.put(mem, param);
 	}

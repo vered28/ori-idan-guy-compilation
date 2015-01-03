@@ -1,5 +1,10 @@
 package LIR.Translation;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
+
 import IC.AST.ICClass;
 import IC.AST.Method;
 import LIR.Instructions.ArrayLength;
@@ -35,17 +40,33 @@ import LIR.Instructions.VirtualCall;
 
 public class LIRPrinter implements LIRVisitor {
 
+	private LIRMethod mainMethod = null;
+	
 	@Override
 	public Object visit(LIRProgram program) {
 
+		//TODO: print comments of offsets
+		
 		StringBuilder sb = new StringBuilder();
 		
 		//first print string literals:
-		for (StringLiteral literal : program.getLiterals()) {
+		
+		List<StringLiteral> sortedLiterals =
+				new ArrayList<StringLiteral>(program.getLiterals());
+		Collections.sort(sortedLiterals, new Comparator<StringLiteral>() {
+
+			@Override
+			public int compare(StringLiteral o1, StringLiteral o2) {
+				return o1.getId().compareTo(o2.getId());
+			}
+		});
+		
+		for (StringLiteral literal : sortedLiterals) {
 			sb.append(literal.getId());
-			sb.append(": \"");
-			sb.append(literal.getLiteral().getValue());
-			sb.append("\"\n");
+			sb.append(": ");
+			sb.append(literal.getLiteral().getType().toFormattedString(
+					literal.getLiteral().getValue()));
+			sb.append("\n");
 		}
 				
 		//next, print dispatch tables:
@@ -79,10 +100,12 @@ public class LIRPrinter implements LIRVisitor {
 		sb.append("\n");
 		
 		for (LIRClass lirclass : program.getClasses()) {
-			if (((ICClass)lirclass.getAssociactedICNode()).getName().equals("LIbrary"))
-				continue;
 			sb.append(lirclass.accept(this));
 		}
+
+		//print main method last:
+		if (mainMethod != null)
+			sb.append(mainMethod.accept(this));
 
 		return sb.toString();
 	}
@@ -93,15 +116,25 @@ public class LIRPrinter implements LIRVisitor {
 		StringBuilder sb = new StringBuilder();
 		
 		for (LIRMethod method : lirclass.getMethods()) {
+			
+			if (((Method)method.getAssociactedICNode()).getName().equals("main")) {
+				//semantic checks already made sure there is but
+				//one method by the name main and is has the correct
+				//signature:
+				mainMethod = method;
+				continue;
+			}
+
 			sb.append(method.accept(this));
+			
 		}
-		
+				
 		return sb.toString();
 	}
 
 	@Override
 	public Object visit(LIRMethod method) {
-		
+				
 		StringBuilder sb = new StringBuilder();
 		
 		for (LIRInstruction instruction : method.getInstructions()) {
@@ -120,7 +153,7 @@ public class LIRPrinter implements LIRVisitor {
 
 	@Override
 	public Object visit(ConstantNull constant) {
-		return "null";
+		return (constant.getValue() + "");
 	}
 	
 	@Override
@@ -150,6 +183,13 @@ public class LIRPrinter implements LIRVisitor {
 	@Override
 	public Object visit(Label label) {
 		
+		/*
+		 * Possible optimization:
+		 * 		label1:
+		 * 		label2:
+		 * 	merge them to one label
+		 */
+
 		StringBuilder sb = new StringBuilder();
 
 		sb.append(label.getValue());
@@ -201,8 +241,16 @@ public class LIRPrinter implements LIRVisitor {
 
 	@Override
 	public Object visit(ArrayLoad load) {
-		// TODO Auto-generated method stub.
-		return null;
+		StringBuilder sb = new StringBuilder();
+		
+		sb.append("MoveArray ");
+		sb.append(load.getFirstOperand().accept(this));
+		sb.append(",");
+		sb.append(load.getSecondOperand().accept(this));
+		sb.append("\n");
+		
+		return sb.toString();
+		
 	}
 
 	@Override
@@ -221,8 +269,17 @@ public class LIRPrinter implements LIRVisitor {
 
 	@Override
 	public Object visit(FieldLoad load) {
-		// TODO Auto-generated method stub.
-		return null;
+	
+		StringBuilder sb = new StringBuilder();
+		
+		sb.append("MoveField ");
+		sb.append(load.getFirstOperand().accept(this));
+		sb.append(",");
+		sb.append(load.getSecondOperand().accept(this));
+		sb.append("\n");
+		
+		return sb.toString();
+		
 	}
 
 	@Override
@@ -242,8 +299,16 @@ public class LIRPrinter implements LIRVisitor {
 
 	@Override
 	public Object visit(ArrayLength length) {
-		// TODO Auto-generated method stub.
-		return null;
+
+		StringBuilder sb = new StringBuilder();
+		
+		sb.append("ArrayLength ");
+		sb.append(length.getFirstOperand().accept(this));
+		sb.append(",");
+		sb.append(length.getSecondOperand().accept(this));
+		sb.append("\n");
+		
+		return sb.toString();
 	}
 
 	@Override
@@ -278,19 +343,54 @@ public class LIRPrinter implements LIRVisitor {
 
 	@Override
 	public Object visit(UnaryArithmetic unaryOp) {
-		// TODO Auto-generated method stub.
-		return null;
+
+		StringBuilder sb = new StringBuilder();
+		
+		sb.append(unaryOp.getOperation().getDescription());
+		sb.append(" ");
+		sb.append(unaryOp.getOperand().accept(this));
+		sb.append("\n");
+		
+		return sb.toString();
 	}
 
 	@Override
 	public Object visit(UnaryLogical unaryOp) {
-		// TODO Auto-generated method stub.
-		return null;
+
+		StringBuilder sb = new StringBuilder();
+		
+		sb.append(unaryOp.getOperation().getDescription());
+		sb.append(" ");
+		sb.append(unaryOp.getOperand().accept(this));
+		sb.append("\n");
+		
+		return sb.toString();
 	}
 
 	@Override
 	public Object visit(Jump jump) {
 
+		/*
+		 * Possible optimization:
+		 * 		Jump xLabel
+		 * 		xLabel:
+		 * 		Jump yLabel
+		 *  jump do Jump yLabel on the first jump
+		 *  
+		 *  Possible optimization:
+		 *  	Move 0,R1
+		 *  	Compare R2,R1
+		 *  	JumpFalse label
+		 *  simply compare R2 to 0 (discard the move). only works with registers.
+		 *  
+		 *  Possible optimization:
+		 *  	while(true)
+		 *  	while(false)
+		 *  	if(true)
+		 *  	else (true)
+		 *  no need to translate condition
+		 */
+		
 		StringBuilder sb = new StringBuilder();
 		
 		sb.append(jump.getOperation().getDescription());
@@ -335,12 +435,39 @@ public class LIRPrinter implements LIRVisitor {
 
 	@Override
 	public Object visit(VirtualCall call) {
-		// TODO Auto-generated method stub.
-		return null;
+
+		StringBuilder sb = new StringBuilder();
+		
+		sb.append("VirtualCall ");
+		sb.append(call.getOffset().accept(this));
+				sb.append("(");
+		
+		boolean first = true;
+		for (Memory mem : call.getParameters().keySet()) {
+			if (first)
+				first = false;
+			else
+				sb.append(", ");
+			sb.append(mem.accept(this));
+			sb.append("=");
+			sb.append(call.getParameter(mem).accept(this));
+		}
+		
+		sb.append("),");
+		sb.append(call.getReturnRegister().accept(this));
+		sb.append("\n");
+		
+		return sb.toString();
 	}
 
 	@Override
 	public Object visit(Return returnInstruction) {
+		
+		/* Possible optimization:
+		 * 		Return x
+		 * 		Jump..
+		 * Remove the jump (happens usually at end of if with else)
+		 */
 		
 		StringBuilder sb = new StringBuilder();
 		
