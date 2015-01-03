@@ -293,7 +293,7 @@ public class SymbolLastUsed implements Visitor {
 	@Override
 	public Object visit(VariableLocation location) {
 		
-		if (location.isExternal()) {
+		if (location.isExternal() && !(location.getLocation() instanceof This)) {
 			//don't worry about internals of externals...
 			//in order to access another object's fields, we'd have
 			//to have the object itself in use (i.e A a = new A(); a.field = x; )
