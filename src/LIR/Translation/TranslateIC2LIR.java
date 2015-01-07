@@ -178,6 +178,93 @@ public class TranslateIC2LIR implements Visitor {
 		return null;
 	}
 	
+	private void printRuntimeCheckErrorAndExit(ASTNode node, Label endLabel, String errorMsg) {
+		
+		LibraryCall printCall = new LibraryCall(node, "__println",
+				new Register(node, Register.DUMMY));
+		StringLiteral sl = literals.get(errorMsg);
+		if (sl == null) {
+			Literal l = new Literal(0, 0, LiteralTypes.STRING, errorMsg);
+			literals.add(l);
+			sl = literals.get(errorMsg);
+		}
+		printCall.addParameter(new Memory(node, sl.getId()));
+		currentMethodInstructions.add(printCall);
+		
+		LibraryCall exitCall = new LibraryCall(node, "__exit",
+				new Register(node, Register.DUMMY));
+		exitCall.addParameter(new ConstantInteger(node, 0));
+		currentMethodInstructions.add(exitCall);
+		
+		currentMethodInstructions.add(endLabel);
+		
+	}
+		
+	private void runtimeCheckSize(ASTNode node, BasicOperand op) {
+		
+		Register reg = null;
+		if (op instanceof Register) {
+			reg = (Register)op;
+		} else {
+			reg = RegisterPool.get(node);
+			currentMethodInstructions.add(new Move(
+					node, op, reg));
+		}
+		
+		Label endLabel = LabelMaker.get(node, 
+				LabelMaker.labelString(currentClass, currentMethod,
+						"_runtime_size_check_label"));
+
+		currentMethodInstructions.add(new BinaryArithmetic(node,
+				BinaryOps.Compare, new ConstantInteger(node, 0), reg));
+		currentMethodInstructions.add(new Jump(node, JumpOps.JumpGE, endLabel));
+		
+		printRuntimeCheckErrorAndExit(node, endLabel,
+				"Runtime Error: Array allocation with negative array size!");
+
+		if (!(op instanceof Register))
+			RegisterPool.putback(reg);
+		
+	}
+	
+	private void runtimeCheckOpIsZero(ASTNode node, BasicOperand op, String errMsg, String labelName) {
+		
+		Register reg = null;
+		if (op instanceof Register) {
+			reg = (Register)op;
+		} else {
+			reg = RegisterPool.get(node);
+			currentMethodInstructions.add(new Move(
+					node, op, reg));
+		}
+		
+		Label endLabel = LabelMaker.get(node, 
+				LabelMaker.labelString(currentClass, currentMethod,
+						labelName));
+		
+		currentMethodInstructions.add(new BinaryArithmetic(node,
+				BinaryOps.Compare, new ConstantInteger(node, 0), reg));
+		currentMethodInstructions.add(new Jump(node, JumpOps.JumpFalse, endLabel));
+
+		printRuntimeCheckErrorAndExit(node, endLabel, errMsg);
+
+		if (!(op instanceof Register))
+			RegisterPool.putback(reg);
+	}
+
+	
+	private void runtimeCheckZero(ASTNode node, BasicOperand op) {
+		runtimeCheckOpIsZero(node, op,
+				"Runtime Error: Division by zero!",
+				"_runtime_zero_check_label");
+	}
+	
+	private void runtimeCheckNullRef(ASTNode node, BasicOperand op) {
+		runtimeCheckOpIsZero(node, op,
+				"Runtime Error: Null pointer dereference!",
+				"_runtime_null_check_label");
+	}
+	
 	/* mark in various data structures when symbol, represented now as
 	 * register, is last used, so we can dispose of it at the earlier
 	 * possible location.
@@ -458,9 +545,10 @@ public class TranslateIC2LIR implements Visitor {
 			this.whileInstructionIndex = new Stack<Integer>();
 			
 			this.currentMethodFieldsAssignment = new HashSet<ExtendedSymbol>();
-			
+						
 			methods.add((LIRMethod)method.accept(this));
 			
+			RegisterPool.flushPool();
 		}
 		
 		LIRClass lirclass;
@@ -831,7 +919,7 @@ public class TranslateIC2LIR implements Visitor {
 							(RegisterOffset)assign,
 							(Register)assignOp));
 		}
-		
+				
 		if (var instanceof RegisterOffset) {
 			
 			currentMethodInstructions.add(
@@ -839,7 +927,7 @@ public class TranslateIC2LIR implements Visitor {
 							assignment, assignOp, (RegisterOffset)var));
 			
 			if (assignment.getAssignment() instanceof NewArray) {
-				RegisterPool.putback((Register)assignOp);
+				markWhenLastUsed(((RegisterOffset)var).getSymbol(), (Register)assignOp);
 			} else if (assignOp instanceof Register) {
 				//push back if no longer needed:
 				Symbol sym = variables.getSymbol((Register)assignOp);
@@ -1005,10 +1093,26 @@ public class TranslateIC2LIR implements Visitor {
 
 		if (returnStatement.hasValue()) {
 			
-			BasicOperand op = (BasicOperand)returnStatement.getValue().accept(this);
+			Operand op = (Operand)returnStatement.getValue().accept(this);
+			
+			BasicOperand returnOperand = null;
+			if (op instanceof BasicOperand) {
+				returnOperand = (BasicOperand)op;
+			} else if (op instanceof RegisterOffset) {
+				returnOperand = RegisterPool.get(returnStatement);
+				currentMethodInstructions.add(new FieldLoad
+						(returnStatement, (RegisterOffset)op,
+								(Register)returnOperand));
+			} else if (op instanceof LIR.Instructions.ArrayLocation) {
+				returnOperand = RegisterPool.get(returnStatement);
+				currentMethodInstructions.add(new ArrayLoad
+						(returnStatement,
+								(LIR.Instructions.ArrayLocation)op,
+								(Register)returnOperand));				
+			}
 			
 			currentMethodInstructions.add(new LIR.Instructions.Return(
-					returnStatement, op));
+					returnStatement, returnOperand));
 			
 			if (op instanceof Register) {
 				if (returnStatement.getValue() instanceof MathBinaryOp ||
@@ -1297,6 +1401,7 @@ public class TranslateIC2LIR implements Visitor {
 					}
 					
 					if (!alreadyAdded) {
+						runtimeCheckSize(newArray, sizeReg);
 						currentMethodInstructions.add(new Move(newArray,
 								(BasicOperand)size, sizeReg));
 						basics.put((BasicOperand)size, sizeReg);
@@ -1614,6 +1719,9 @@ public class TranslateIC2LIR implements Visitor {
 					
 				}
 			}
+			
+			if (external != null)
+				runtimeCheckNullRef(location, external);
 		}
 		
 		ClassScope classScope = null;
@@ -1754,6 +1862,8 @@ public class TranslateIC2LIR implements Visitor {
 			arrayOperand = RegisterPool.get(location);
 			currentMethodInstructions.add(new Move(location, (Memory)array, arrayOperand));
 		}
+		
+		runtimeCheckNullRef(location, arrayOperand);
 		
 		Object index = location.getIndex().accept(this);
 
@@ -1964,6 +2074,8 @@ public class TranslateIC2LIR implements Visitor {
 				markWhenLastUsed(classSymbol, thisRegister);
 			}
 			
+			runtimeCheckNullRef(call, thisRegister);
+			
 			lircall = new LIR.Instructions.VirtualCall(call,
 					new RegisterOffset(call, thisRegister, new ConstantInteger(call, offset)),
 					null);
@@ -2095,6 +2207,8 @@ public class TranslateIC2LIR implements Visitor {
 			reg = RegisterPool.get(newArray);
 			LibraryCall call = new LibraryCall(newArray,
 					"__allocateArray", reg);
+			//size is definitely positive, since we checked in
+			//semantic checks (for easy to know types such as const int).
 			call.addParameter(new ConstantInteger(
 					newArray, 4 * ((ConstantInteger)val).getValue()));
 			currentMethodInstructions.add(call);
@@ -2116,6 +2230,9 @@ public class TranslateIC2LIR implements Visitor {
 			} else {
 				sizeReg = (Register)val;
 			}
+			
+			runtimeCheckSize(newArray, sizeReg);
+			
 			Register multReg = RegisterPool.get(newArray);
 			
 			//multiply size by 4 (for each element is 4 bytes):
@@ -2178,6 +2295,8 @@ public class TranslateIC2LIR implements Visitor {
 			
 		}
 		
+		runtimeCheckNullRef(length, arrayOperand);
+		
 		Register reg = null;
 		
 		if (arrayOperand instanceof Register) {
@@ -2231,8 +2350,30 @@ public class TranslateIC2LIR implements Visitor {
 	@Override
 	public Object visit(MathBinaryOp binaryOp) {
 
-		Operand op1 = (Operand)binaryOp.getFirstOperand().accept(this);
-		Operand op2 = (Operand)binaryOp.getSecondOperand().accept(this);
+		int weight1 = binaryOp.getFirstOperand().getWeight();
+		int weight2 = binaryOp.getSecondOperand().getWeight();
+		
+		Operand op1, op2;
+		if (weight1 >= weight2 || weight1 == -1 || weight2 == -1) {
+			op1 = (Operand)binaryOp.getFirstOperand().accept(this);
+			op2 = (Operand)binaryOp.getSecondOperand().accept(this);
+		} else {
+			//first do op2
+			op2 = (Operand)binaryOp.getSecondOperand().accept(this);
+			op1 = (Operand)binaryOp.getFirstOperand().accept(this);			
+		}
+		
+		//LIR is weird.. doing op1 @ op2 needs to be written as
+		//@ op2,op1. so let us simply swap the two...
+		{
+			Operand tmp = op1;
+			op1 = op2;
+			op2 = tmp;
+			
+			boolean tmpChanging = changingMyOwnValueOperand1;
+			changingMyOwnValueOperand1 = changingMyOwnValueOperand2;
+			changingMyOwnValueOperand2 = tmpChanging;
+		}
 		
 		boolean op1Imm = false;
 		boolean op2Imm = false;
@@ -2262,35 +2403,13 @@ public class TranslateIC2LIR implements Visitor {
 		}
 		
 		
-		boolean neededNewOp1Register = false;
-		boolean neededNewOp2Register = false;
-
-		if (op1 instanceof LIR.Instructions.ArrayLocation) {
-			//move location to register:
-			Register tmp = RegisterPool.get(binaryOp);
-			neededNewOp1Register = true;
-			currentMethodInstructions.add(new ArrayLoad(binaryOp,
-					((LIR.Instructions.ArrayLocation)op1),
-					tmp));
-			op1 = tmp;
-		} else if (op1 instanceof RegisterOffset) {
-			Register tmp = RegisterPool.get(binaryOp);
-			currentMethodInstructions.add(new FieldLoad(binaryOp,
-					(RegisterOffset)op1, tmp));
-			
-			if (isSymbolNoLongerInUse(((RegisterOffset)op1).getSymbol())) {
-				neededNewOp1Register = true;
-			} else {
-				markWhenLastUsed(((RegisterOffset)op1).getSymbol(), tmp);
-			}
-			
-			op1 = tmp;
-		}
+		boolean neededNewop2Register = false;
+		boolean neededNewop1Register = false;
 
 		if (op2 instanceof LIR.Instructions.ArrayLocation) {
 			//move location to register:
 			Register tmp = RegisterPool.get(binaryOp);
-			neededNewOp2Register = true;
+			neededNewop2Register = true;
 			currentMethodInstructions.add(new ArrayLoad(binaryOp,
 					((LIR.Instructions.ArrayLocation)op2),
 					tmp));
@@ -2301,12 +2420,34 @@ public class TranslateIC2LIR implements Visitor {
 					(RegisterOffset)op2, tmp));
 			
 			if (isSymbolNoLongerInUse(((RegisterOffset)op2).getSymbol())) {
-				neededNewOp2Register = true;
+				neededNewop2Register = true;
 			} else {
 				markWhenLastUsed(((RegisterOffset)op2).getSymbol(), tmp);
 			}
 			
 			op2 = tmp;
+		}
+
+		if (op1 instanceof LIR.Instructions.ArrayLocation) {
+			//move location to register:
+			Register tmp = RegisterPool.get(binaryOp);
+			neededNewop1Register = true;
+			currentMethodInstructions.add(new ArrayLoad(binaryOp,
+					((LIR.Instructions.ArrayLocation)op1),
+					tmp));
+			op1 = tmp;
+		} else if (op1 instanceof RegisterOffset) {
+			Register tmp = RegisterPool.get(binaryOp);
+			currentMethodInstructions.add(new FieldLoad(binaryOp,
+					(RegisterOffset)op1, tmp));
+			
+			if (isSymbolNoLongerInUse(((RegisterOffset)op1).getSymbol())) {
+				neededNewop1Register = true;
+			} else {
+				markWhenLastUsed(((RegisterOffset)op1).getSymbol(), tmp);
+			}
+			
+			op1 = tmp;
 		}
 
 		if (binaryOp.getNodeType() instanceof IC.Semantics.Types.PrimitiveType &&
@@ -2317,18 +2458,18 @@ public class TranslateIC2LIR implements Visitor {
 			
 			LibraryCall call = new LibraryCall(binaryOp, "__stringCat", null);
 
-			call.addParameter((BasicOperand)op1);
 			call.addParameter((BasicOperand)op2);
+			call.addParameter((BasicOperand)op1);
 
 			Register reg = RegisterPool.get(binaryOp);
 			call.setReturnRegister(reg);
 			currentMethodInstructions.add(call);
 			
-			if (neededNewOp1Register)
-				RegisterPool.putback((Register)op1);
-
-			if (neededNewOp2Register)
+			if (neededNewop2Register)
 				RegisterPool.putback((Register)op2);
+
+			if (neededNewop1Register)
+				RegisterPool.putback((Register)op1);
 
 			return reg;
 			
@@ -2338,71 +2479,77 @@ public class TranslateIC2LIR implements Visitor {
 		
 		boolean swapped = false;
 
-		//can only handle one immediate if it is either of op1, or if its' op2
+		//can only handle one immediate if it is either of op2, or if its' op1
 		//but the action is commutative (+/*). otherwise, we can't do anything special :(
 		boolean commutative = (binaryOp.getOperator() == IC.BinaryOps.PLUS ||
 				binaryOp.getOperator() == IC.BinaryOps.MULTIPLY);
 		
-		if ((op1Imm && commutative) || op2Imm) {
+		if ((op2Imm && commutative) || op1Imm) {
 			
 			//both are not immediates!
-			if (op2Imm) {
-				//if op2 is the immediate, simply swap op1<-->op2
-				//and treat both cases as the same (op1 is commutative!):
-				Operand tmp = op1;
-				op1 = op2;
-				op2 = tmp;
+			if (op1Imm) {
+				//if op1 is the immediate, simply swap op2<-->op1
+				//and treat both cases as the same (op2 is commutative!):
+				Operand tmp = op2;
+				op2 = op1;
+				op1 = tmp;
 				
 				swapped = true;
 				
-				boolean tmp2 = neededNewOp1Register;
-				neededNewOp1Register = neededNewOp2Register;
-				neededNewOp2Register = tmp2;
+				boolean tmp2 = neededNewop2Register;
+				neededNewop2Register = neededNewop1Register;
+				neededNewop1Register = tmp2;
 			}
 			
 			if (changingMyOwnValueOperand1 | changingMyOwnValueOperand2) {
-				if (op2 instanceof Register) {
-					result = (Register)op2;
+				if (op1 instanceof Register) {
+					result = (Register)op1;
 				}
 			}
 						
 		} else {
 			if (changingMyOwnValueOperand2) {
-				if (op2 instanceof Register) {
-					result = (Register)op2;
+				if (op1 instanceof Register) {
+					result = (Register)op1;
 				}
 			} else if (changingMyOwnValueOperand1) {
 				//if commutative operation, we can simply swap:
 				if (commutative) {
-					Operand tmp = op1;
-					op1 = op2;
-					op2 = tmp;
-					result = (Register)op2;
+					Operand tmp = op2;
+					op2 = op1;
+					op1 = tmp;
+					result = (Register)op1;
 					swapped = true;
 				} //otherwise, we can't do anything. must add another instruction :(
 			}
 		}
 		
-		if (swapped) {
-			if (binaryOp.getFirstOperand() instanceof MathBinaryOp)
-				result = (Register)op2;
-			else if (binaryOp.getFirstOperand() instanceof ExpressionBlock)
-				result = (Register)op2;
-		} else {
+		boolean makeFirstOperandFirst = false;
+		
+		if (swapped) { //remember we swapped originally!
 			if (binaryOp.getSecondOperand() instanceof MathBinaryOp)
-				result = (Register)op2;
+				result = (Register)op1;
 			else if (binaryOp.getSecondOperand() instanceof ExpressionBlock)
+				result = (Register)op1;
+		} else {
+			if (binaryOp.getFirstOperand() instanceof MathBinaryOp) {
+				makeFirstOperandFirst = true;
 				result = (Register)op2;
+			}
+			else if (binaryOp.getFirstOperand() instanceof ExpressionBlock) {
+				makeFirstOperandFirst = true;
+				result = (Register)op2;
+			}
 		}
 		
 		if (result == null) {
 			result =  RegisterPool.get(binaryOp);
 			
-			//move op2 value to register, unless already register
+			//move op1 value to register, unless already register
 			//with the same num (reuse is happening right here, man)
-			if (!(op2 instanceof Register) ||
-					((Register)op2).getNum() != result.getNum())
-				currentMethodInstructions.add(new Move(binaryOp, op2, result));						
+			if (!(op1 instanceof Register) ||
+					((Register)op1).getNum() != result.getNum())
+				currentMethodInstructions.add(new Move(binaryOp, op1, result));						
 		}
 		
 		BinaryOps op = null;
@@ -2413,18 +2560,20 @@ public class TranslateIC2LIR implements Visitor {
 		} else if (binaryOp.getOperator() == IC.BinaryOps.MULTIPLY) {
 			op = BinaryOps.Mul;
 		} else if (binaryOp.getOperator() == IC.BinaryOps.DIVIDE) {
+			runtimeCheckZero(binaryOp, (BasicOperand)op2); //op a,b does b/a
 			op = BinaryOps.Div;
 		} else if (binaryOp.getOperator() == IC.BinaryOps.MOD) {
 			op = BinaryOps.Mod;
 		}
 				
-		currentMethodInstructions.add(new BinaryArithmetic(binaryOp, op, (BasicOperand)op1, result));
+		currentMethodInstructions.add(new BinaryArithmetic(binaryOp, op, 
+				(makeFirstOperandFirst ? (BasicOperand)op1 : (BasicOperand)op2), result));
 		
-		if (neededNewOp1Register)
-			RegisterPool.putback((Register)op1);
-
-		if (neededNewOp2Register)
+		if (neededNewop2Register)
 			RegisterPool.putback((Register)op2);
+
+		if (neededNewop1Register)
+			RegisterPool.putback((Register)op1);
 
 		return result;
 
@@ -2435,8 +2584,18 @@ public class TranslateIC2LIR implements Visitor {
 		
 		if (!binaryOp.getOperator().isLogicalOperation()) {
 			
-			Operand op1 = (Operand)binaryOp.getFirstOperand().accept(this);
-			Operand op2 = (Operand)binaryOp.getSecondOperand().accept(this);
+			int weight1 = binaryOp.getFirstOperand().getWeight();
+			int weight2 = binaryOp.getFirstOperand().getWeight();
+			
+			Operand op1, op2;
+			if (weight1 >= weight2 || weight1 == -1 || weight2 == -1) {
+				op1 = (Operand)binaryOp.getFirstOperand().accept(this);
+				op2 = (Operand)binaryOp.getSecondOperand().accept(this);
+			} else {
+				//first do op2
+				op2 = (Operand)binaryOp.getSecondOperand().accept(this);
+				op1 = (Operand)binaryOp.getFirstOperand().accept(this);			
+			}
 			
 			BasicOperand basicOp1 = null;
 			if (op1 instanceof BasicOperand) {

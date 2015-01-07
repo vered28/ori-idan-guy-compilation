@@ -1,18 +1,10 @@
 package LIR.Translation;
 
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-
-import IC.LiteralTypes;
 import IC.AST.ArrayLocation;
 import IC.AST.Assignment;
 import IC.AST.Break;
 import IC.AST.CallStatement;
 import IC.AST.Continue;
-import IC.AST.Expression;
 import IC.AST.ExpressionBlock;
 import IC.AST.Field;
 import IC.AST.Formal;
@@ -48,134 +40,49 @@ import IC.Semantics.Scopes.Kind;
 import IC.Semantics.Scopes.ScopesTraversal;
 import IC.Semantics.Scopes.Symbol;
 
-public class BuildGlobalConstants implements Visitor {
+public class WeighBySethiUllman implements Visitor {
 
-	/* This class scans the AST and builds the String Literal
-	 * Set and the Dispatch Table for each class.
-	 */
-
-	private StringLiteralSet literals;
-	private Map<ICClass, DispatchTable> dispatchTables;
-	
-	private ICClass currentClass;
-	
-	public BuildGlobalConstants() {
-		this.literals = new StringLiteralSet();
-		this.dispatchTables = new HashMap<ICClass, DispatchTable>();
-	}
-	
 	@Override
 	public Object visit(Program program) {
-		
-		//first sort classes so that the non-inheriting ones will
-		//be checked first (and therefore when we reach their subclasses,
-		//their dispatch tables would have been defined by then).
-		List<ICClass> classes = program.getClasses();
-		Collections.sort(classes, new Comparator<ICClass>() {
-
-			@Override
-			public int compare(ICClass o1, ICClass o2) {
-				
-				if (!o1.hasSuperClass())
-					return -1;
-				
-				if (!o2.hasSuperClass())
-					return 1;
-				
-				//both o1 and o2 have super classes; if one is direct
-				//child of the other, sort so the parent is first.
-				//otherwise, it doesn't matter.
-				
-				if (o1.getSuperClassName().equals(o2.getName())) {
-					//o1 extends o2
-					return 1;
-				}
-				
-				if (o2.getSuperClassName().equals(o1.getName())) {
-					//o2 extends o1
-					return -1;
-				}
-				
-				//does not matter
-				return 0;
-			}
-		});
-		
-		for (ICClass cls : classes) {
+		for (ICClass cls : program.getClasses()) {
 			cls.accept(this);
 		}
-		
-		return new GlobalConstantsWrapper(literals, dispatchTables);
+		return null;
 	}
 
 	@Override
 	public Object visit(ICClass icClass) {
-		
-		if (!dispatchTables.containsKey(icClass)) {
-			DispatchTable dt = new DispatchTable(icClass.getName());
-			if (icClass.hasSuperClass()) {
-				dt = (DispatchTable)dispatchTables.get(
-						ScopesTraversal.getICClassFromClassScope(
-								(ClassScope)ScopesTraversal.getClassScopeByName(
-										icClass.getEnclosingScope(),
-										icClass.getSuperClassName()))
-						).clone();
-				dt.setName(icClass.getName());
-			}
-			dispatchTables.put(icClass, dt);
-		}
-		
-		currentClass = icClass;
-		
-		for (Field field : icClass.getFields()) {
-			field.accept(this);
-		}
-
 		for (Method method : icClass.getMethods()) {
 			method.accept(this);
 		}
-		
 		return null;
 	}
 
 	@Override
 	public Object visit(Field field) {
-		dispatchTables.get(currentClass).addField(field);
+		//do nothing
 		return null;
 	}
 
 	@Override
 	public Object visit(VirtualMethod method) {
-		
-		//is override?
-		Symbol methodSymbol = ScopesTraversal.findSymbol(method.getName(),
-				Kind.VIRTUALMETHOD, currentClass.getEnclosingScope().getParentScope());
-		if (methodSymbol != null) {
-			dispatchTables.get(currentClass).replaceMethod(
-					(Method)methodSymbol.getNode(), method);
-		} else {
-			dispatchTables.get(currentClass).addMethod(method);
-		}
-		
 		for (Statement stmt : method.getStatements()) {
 			stmt.accept(this);
 		}
-		
 		return null;
 	}
 
 	@Override
 	public Object visit(StaticMethod method) {
-		//dispatch table is only for virtual methods
 		for (Statement stmt : method.getStatements()) {
 			stmt.accept(this);
-		}		
+		}
 		return null;
 	}
 
 	@Override
 	public Object visit(LibraryMethod method) {
-		// do nothing (no statements)
+		// do nothing
 		return null;
 	}
 
@@ -199,8 +106,8 @@ public class BuildGlobalConstants implements Visitor {
 
 	@Override
 	public Object visit(Assignment assignment) {
-		assignment.getAssignment().accept(this);
 		assignment.getVariable().accept(this);
+		assignment.getAssignment().accept(this);
 		return null;
 	}
 
@@ -262,37 +169,92 @@ public class BuildGlobalConstants implements Visitor {
 
 	@Override
 	public Object visit(VariableLocation location) {
-		if (location.isExternal())
-			location.getLocation().accept(this);
-		return null;
+		location.setWeight(1);
+		return 1;
 	}
 
 	@Override
 	public Object visit(ArrayLocation location) {
 		location.getArray().accept(this);
 		location.getIndex().accept(this);
-		return null;
+		location.setWeight(1);
+		return 1;
 	}
 
 	@Override
 	public Object visit(StaticCall call) {
-		for (Expression expr : call.getArguments()) {
-			expr.accept(this);
+		
+		Symbol symbol = ScopesTraversal.findSymbol(call.getName(),
+				Kind.STATICMETHOD,
+				ScopesTraversal.getClassScopeByName(
+						call.getEnclosingScope(),
+						call.getClassName()));
+		
+		if (((Method)symbol.getNode()).isPure()) {
+			call.setWeight(1);
+			return 1;
 		}
-		return null;
+
+		call.setWeight(-1);
+		return -1;
 	}
 
 	@Override
 	public Object visit(VirtualCall call) {
 
-		if (call.isExternal())
-			call.getLocation().accept(this);
+		//the catch for virtual call -- it may also be a static
+		//call to a static method in the same class scope.
 		
-		for (Expression expr : call.getArguments()) {
-			expr.accept(this);
+		boolean virtualMethod = true;
+		
+		if (call.isExternal()) {
+			//we don't know how to tell if external method
+			//calls are pure...
+			return -1;
+		}
+			
+		ClassScope currentScope = (ClassScope)call.getEnclosingScope();
+		Symbol staticSymbol = ScopesTraversal.findSymbol(
+				call.getName(), Kind.STATICMETHOD, currentScope);
+		
+		if (staticSymbol != null) {
+			
+			Symbol virtualSymbol = ScopesTraversal.findSymbol(
+					call.getName(), Kind.VIRTUALMETHOD, currentScope);
+						
+			if (virtualSymbol == null) {
+				//this is a static call:
+				virtualMethod = false;
+			} else {
+				
+				//two methods exist with the same name in this scope, one
+				//virtual and one static. Only one matches the number of
+				//arguments supplied by this call (we've verified it).
+				
+				int staticFormalSize = ((Method)staticSymbol.getNode()).getFormals().size();
+				int callArgumentsSize = call.getArguments().size();
+				if (staticFormalSize == callArgumentsSize) {
+					//this is a static call:
+					virtualMethod = false;
+				}
+				
+			}
+		}		
+
+		Symbol methodSymbol = ScopesTraversal.findSymbol(
+				call.getName(),
+				virtualMethod ? Kind.VIRTUALMETHOD : Kind.STATICMETHOD,
+				call.getEnclosingScope());
+		
+		if (methodSymbol != null) {
+			if (((Method)methodSymbol.getNode()).isPure()) {
+				call.setWeight(1);
+				return 1;
+			}
 		}
 		
-		return null;
+		call.setWeight(-1);
+		return -1;
 	}
 
 	@Override
@@ -315,47 +277,73 @@ public class BuildGlobalConstants implements Visitor {
 
 	@Override
 	public Object visit(Length length) {
-		length.getArray().accept(this);
-		return null;
+		length.setWeight(1);
+		return 1; //no weight
 	}
 
 	@Override
 	public Object visit(MathBinaryOp binaryOp) {
-		binaryOp.getFirstOperand().accept(this);
-		binaryOp.getSecondOperand().accept(this);
-		return null;
+		
+		int op1 = (Integer)binaryOp.getFirstOperand().accept(this);
+		int op2 = (Integer)binaryOp.getSecondOperand().accept(this);
+		
+		if (op1 == -1 || op2 == -1) {
+			//cannot avoid side-effects
+			binaryOp.setWeight(-1);
+			return -1;
+		}
+		
+		binaryOp.setWeight(op1+op2);
+		return op1+op2;
 	}
 
 	@Override
 	public Object visit(LogicalBinaryOp binaryOp) {
-		binaryOp.getFirstOperand().accept(this);
-		binaryOp.getSecondOperand().accept(this);
-		return null;
+
+		int op1 = (Integer)binaryOp.getFirstOperand().accept(this);
+		int op2 = (Integer)binaryOp.getSecondOperand().accept(this);
+		
+		if (binaryOp.getOperator().isLogicalOperation()) {
+			//in && or ||, short-circuit, order matters!
+			binaryOp.setWeight(-1);
+			return -1;
+		}
+		
+		if (op1 == -1 || op2 == -1) {
+			//cannot avoid side-effects
+			binaryOp.setWeight(-1);
+			return -1;
+		}
+		
+		binaryOp.setWeight(op1+op2);
+		return op1+op2;
 	}
 
 	@Override
 	public Object visit(MathUnaryOp unaryOp) {
-		unaryOp.getOperand().accept(this);
-		return null;
+		int weight = (Integer)unaryOp.getOperand().accept(this);
+		unaryOp.setWeight(weight);
+		return weight;
 	}
 
 	@Override
 	public Object visit(LogicalUnaryOp unaryOp) {
-		unaryOp.getOperand().accept(this);
-		return null;
+		int weight = (Integer)unaryOp.getOperand().accept(this);
+		unaryOp.setWeight(weight);
+		return weight;
 	}
 
 	@Override
 	public Object visit(Literal literal) {
-		if (literal.getType() == LiteralTypes.STRING)
-			literals.add(literal);
-		return null;
+		literal.setWeight(1);
+		return 1;
 	}
 
 	@Override
 	public Object visit(ExpressionBlock expressionBlock) {
-		expressionBlock.getExpression().accept(this);
-		return null;
+		int weight = (Integer)expressionBlock.getExpression().accept(this);
+		expressionBlock.setWeight(weight);
+		return weight;
 	}
-	
+
 }

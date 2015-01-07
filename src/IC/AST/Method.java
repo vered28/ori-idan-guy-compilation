@@ -16,6 +16,9 @@ public abstract class Method extends ASTNode {
 	protected List<Formal> formals;
 
 	protected List<Statement> statements;
+	
+	//assume by default no method is pure
+	protected boolean pure = false;
 
 	/**
 	 * Constructs a new method node. Used by subclasses.
@@ -52,5 +55,13 @@ public abstract class Method extends ASTNode {
 
 	public List<Statement> getStatements() {
 		return statements;
+	}
+
+	public boolean isPure() {
+		return this.pure;
+	}
+
+	public void setPure(boolean pure) {
+		this.pure = pure;
 	}
 }
