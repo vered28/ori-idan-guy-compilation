@@ -1,0 +1,104 @@
+str1: "Array elements: "
+str2: " "
+str3: "\n"
+_DV_Quicksort: [_Quicksort_partition, _Quicksort_quicksort, _Quicksort_initArray, _Quicksort_printArray]
+
+_Quicksort_partition:
+Move this,R1
+MoveField R1.1,R2
+Move low,R1
+MoveArray R2[R1],R3
+Move high,R4
+_Quicksort_partition_while_label:
+Move 1,R5
+Compare 0,R5
+JumpTrue _Quicksort_partition_end_label
+_Quicksort_partition_while_label1:
+MoveArray R2[R1],R5
+Compare R5,R3
+JumpLE _Quicksort_partition_end_label1
+Inc R1
+Jump _Quicksort_partition_while_label1
+_Quicksort_partition_end_label1:
+_Quicksort_partition_while_label2:
+MoveArray R2[R4],R5
+Compare R5,R3
+JumpGE _Quicksort_partition_end_label2
+Dec R4
+Jump _Quicksort_partition_while_label2
+_Quicksort_partition_end_label2:
+Compare R1,R4
+JumpG _Quicksort_partition_end_label3
+Jump _Quicksort_partition_end_label
+_Quicksort_partition_end_label3:
+MoveArray R2[R1],R5
+MoveArray R2[R4],R6
+MoveArray R6,R2[R1]
+MoveArray R5,R2[R4]
+Inc R1
+Dec R4
+Jump _Quicksort_partition_while_label
+_Quicksort_partition_end_label:
+Return R4
+
+_Quicksort_quicksort:
+Move high,R1
+Compare low,R1
+JumpLE _Quicksort_quicksort_end_label
+Move this,R1
+VirtualCall R1.0(low=low, high=high),R2
+VirtualCall R1.1(low=low, high=R2),Rdummy
+Add 1,R2
+VirtualCall R1.1(low=R2, high=high),Rdummy
+_Quicksort_quicksort_end_label:
+Return Rdummy
+
+_Quicksort_initArray:
+Move this,R1
+MoveField R1.1,R2
+MoveArray 9,R2[0]
+MoveArray 8,R2[1]
+MoveArray 2,R2[2]
+MoveArray 5,R2[3]
+MoveArray 0,R2[4]
+MoveArray 6,R2[5]
+MoveArray 7,R2[6]
+MoveArray 1,R2[7]
+MoveArray 3,R2[8]
+MoveArray 4,R2[9]
+Return Rdummy
+
+_Quicksort_printArray:
+Move 0,i
+Library __print(str1),Rdummy
+_Quicksort_printArray_while_label:
+Move this,R1
+MoveField R1.1,R1
+ArrayLength R1,R2
+Compare i,R2
+JumpLE _Quicksort_printArray_end_label
+Move i,R3
+MoveArray R1[R3],R2
+Library __printi(R2),Rdummy
+Library __print(str2),Rdummy
+Inc R3
+Move R3,i
+Jump _Quicksort_printArray_while_label
+_Quicksort_printArray_end_label:
+Library __print(str3),Rdummy
+Return Rdummy
+
+_ic_main:
+Move 10,n
+Library __allocateObject(12),R1
+MoveField _DV_Quicksort,R1.0
+Move n,R2
+Mul 4,R2
+Library __allocateArray(R2),R3
+MoveField R3,R1.1
+VirtualCall R1.2(),Rdummy
+VirtualCall R1.3(),Rdummy
+Move n,R2
+Sub 1,R2
+VirtualCall R1.1(high=R2, low=0),Rdummy
+VirtualCall R1.3(),Rdummy

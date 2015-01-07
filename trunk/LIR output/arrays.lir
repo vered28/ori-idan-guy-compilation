@@ -1,0 +1,43 @@
+_DV_Bar: [_Bar_foo, _Bar_foo2]
+
+# Bar class fields offset:
+#---------------------------------------------
+# bars	1
+# x	2
+
+_Bar_foo:
+Library __allocateArray(8),R1
+Move this,R2
+MoveField R1,R2.1
+Library __allocateObject(12),R1
+MoveField _DV_Bar,R1.0
+MoveField R2.1,R2
+MoveArray R1,R2[0]
+MoveArray R2[0],R1
+MoveField 1,R1.2
+Library __allocateObject(12),R1
+MoveField _DV_Bar,R1.0
+MoveArray R1,R2[1]
+MoveArray R2[1],R1
+MoveField 4,R1.2
+MoveArray R2[0],R1
+VirtualCall R1.1(),Rdummy
+MoveArray R2[1],R1
+VirtualCall R1.1(),Rdummy
+Return Rdummy
+
+_Bar_foo2:
+Move this,R1
+MoveField R1.2,R2
+Library __printi(R2),Rdummy
+Return Rdummy
+
+_Main_dosomething_static:
+Move bar,R1
+VirtualCall R1.0(),Rdummy
+Return Rdummy
+
+_ic_main:
+Library __allocateObject(12),R1
+MoveField _DV_Bar,R1.0
+StaticCall _Main_dosomething_static(bar=R1),Rdummy

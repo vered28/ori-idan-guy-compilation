@@ -17,6 +17,7 @@ import IC.AST.ASTNode;
 import IC.AST.ArrayLocation;
 import IC.AST.Assignment;
 import IC.AST.Break;
+import IC.AST.Call;
 import IC.AST.CallStatement;
 import IC.AST.Continue;
 import IC.AST.Expression;
@@ -122,6 +123,12 @@ public class TranslateIC2LIR implements Visitor {
 	
 	//add LIR instructions as you traverse through the AST:
 	private List<LIRInstruction> currentMethodInstructions = null;
+	
+	//keep fields' symbols when they're assigned to, and flush
+	//their values back to their registers when we're done
+	//using them.
+	private Set<ExtendedSymbol> currentMethodFieldsAssignment = null;
+	private boolean lhsOfAssignmentStatement = false;
 	
 	//when calculating complex condition, toggle this to indicate if
 	//we operating under an odd number of negations ("take negation")
@@ -253,8 +260,8 @@ public class TranslateIC2LIR implements Visitor {
 						
 						boolean used = (symbol != null && (
 								((symbol instanceof ExtendedSymbol) &&
-										((ExtendedSymbol)symbol).getLastStatementUsed(currentMethod) == whileStmt)
-								|| (!(symbol instanceof ExtendedSymbol) && symbol.getLastStatementUsed() == whileStmt))
+										((ExtendedSymbol)symbol).getLastStatementUsed(currentMethod) instanceof While)
+								|| (!(symbol instanceof ExtendedSymbol) && symbol.getLastStatementUsed() instanceof While))
 						);
 						
 						if (used) {
@@ -278,23 +285,85 @@ public class TranslateIC2LIR implements Visitor {
 		
 	}
 	
-	private void returnRegistersToPool(Statement stmt) {
-		if (registerLastStatement.values().contains(stmt)) {
-			for (Register r : registerLastStatement.keySet()) {
-				if (registerLastStatement.get(r) == stmt) {
-					RegisterPool.putback(r);
-				}
+	private void flushField(ASTNode node, ExtendedSymbol symbol, Register reg) {
+		
+		if (symbol.getKind() == Kind.FIELD) {
+			if (currentMethodFieldsAssignment.contains(symbol)) {
+				
+				//need to write register value back to the field.
+				//first we need to find field's offset:
+				
+				ExtendedSymbol classSymbol = (ExtendedSymbol)
+						ScopesTraversal.findSymbol(
+								currentClass.getName(), Kind.CLASS,
+								node.getEnclosingScope());
+				
+				//classSymbol cannot be null
+				
+				//last used makes sure to keep the class alive in map:
+				Register classReg = variables.get(classSymbol);
+				int offset = dispatchTables.get(currentClass).getOffset(
+						(Field)symbol.getNode());
+				
+				currentMethodInstructions.add(new FieldStore(node,
+						reg, new RegisterOffset(node, classReg,
+								new ConstantInteger(node, offset))));
 			}
 		}
 	}
+	
+	private void returnRegistersToPool(Statement stmt) {
+		
+		List<Register> registers = new LinkedList<Register>();
+		
+		if (registerLastStatement.values().contains(stmt)) {
+			for (Register r : registerLastStatement.keySet()) {
+				if (registerLastStatement.get(r) == stmt) {
+
+					if (variables.getSymbol(r) != null
+							&& variables.getSymbol(r).getKind() == Kind.FIELD) {
+						flushField(stmt, (ExtendedSymbol)variables.getSymbol(r), r);
+					}
+					
+					registers.add(r);
+					RegisterPool.putback(r);
+				}
+				
+			}
+
+			for (Register r : registers) {
+				registerLastStatement.remove(r);
+				registerLastExpression.remove(r);
+			}
+
+		}
+		
+	}
 
 	private void returnRegistersToPool(Expression expr) {
+
+		List<Register> registers = new LinkedList<Register>();
+
 		if (registerLastExpression.values().contains(expr)) {
 			for (Register r : registerLastStatement.keySet()) {
 				if (registerLastExpression.get(r) == expr) {
+					
+					if (variables.getSymbol(r) != null
+							&& variables.getSymbol(r).getKind() == Kind.FIELD) {
+						flushField(expr, (ExtendedSymbol)variables.getSymbol(r), r);
+					}
+
+					registers.add(r);
 					RegisterPool.putback(r);
+					
 				}
 			}
+
+			for (Register r : registers) {
+				registerLastStatement.remove(r);
+				registerLastExpression.remove(r);
+			}
+
 		}
 	}
 	
@@ -387,6 +456,8 @@ public class TranslateIC2LIR implements Visitor {
 			this.labelsToBreak = new Stack<Label>();
 			this.labelsToContinue = new Stack<Label>();
 			this.whileInstructionIndex = new Stack<Integer>();
+			
+			this.currentMethodFieldsAssignment = new HashSet<ExtendedSymbol>();
 			
 			methods.add((LIRMethod)method.accept(this));
 			
@@ -514,14 +585,14 @@ public class TranslateIC2LIR implements Visitor {
 	 */
 	private boolean isIncOrDec(Assignment assignment, Operand var) {
 		
-		if (assignment.getAssignment() instanceof MathBinaryOp) {
+		if (assignment.getAssignment() instanceof MathBinaryOp
+				&& assignment.getVariable() instanceof VariableLocation) {
 			
 			//no one promised you a bed of roses,
 			//no one said it's going to be pretty,
 			//shut your eyes and hope for the best,
 			//this hideous sight will soon be of the past
 			
-			//TODO: what about arr[i]++, or this.x++;
 			if (var instanceof Register) {
 				
 				boolean simpleMath = false;
@@ -543,8 +614,11 @@ public class TranslateIC2LIR implements Visitor {
 								if (((VariableLocation)math.getSecondOperand()).getName()
 										.equals(variableSymbol.getID())) {
 									if (((Integer)((Literal)math.getFirstOperand()).getValue()) == 1) {
-										//cha-ching! (almost...)
-										simpleMath = true;
+										if (matchExternals((VariableLocation)assignment.getVariable(),
+												(VariableLocation)math.getSecondOperand())) {
+											//cha-ching! (almost...)
+											simpleMath = true;
+										}
 									}
 								}
 							}
@@ -555,9 +629,12 @@ public class TranslateIC2LIR implements Visitor {
 							if (((VariableLocation)math.getFirstOperand()).getName()
 									.equals(variableSymbol.getID())) {
 								if (Integer.valueOf(((Literal)math.getSecondOperand()).getValue() + "") == 1) {
-									//cha-ching! (almost...)
-									decPossible = true;
-									simpleMath = true;
+									if (matchExternals((VariableLocation)assignment.getVariable(),
+											(VariableLocation)math.getFirstOperand())) {
+										//cha-ching! (almost...)
+										decPossible = true;
+										simpleMath = true;
+									}
 								}
 							}
 						}
@@ -600,29 +677,138 @@ public class TranslateIC2LIR implements Visitor {
 		
 	}
 	
+	/*
+	 * checks that externals of two variable locations match, given that both locations
+	 * have the same name. Meaning, checks that both refer to the same symbol.
+	 */
+	private boolean matchExternals(VariableLocation loc1, VariableLocation loc2) {
+		
+		if (!loc1.isExternal() && !loc2.isExternal())
+			return true;
+		
+		if (!loc1.isExternal() || !loc2.isExternal()) {
+			//are only allowed not to match if one of them is "this"
+			//(we can do this.x = x + 1) if both refer to the same x!
+			
+			if (loc2.isExternal()) {
+				//swap loc1<-->loc2 (so we can handle both cases in the same code):
+				VariableLocation tmp = loc1;
+				loc1 = loc2;
+				loc2 = tmp;
+			}
+			
+			if (!(loc1.getLocation() instanceof This))
+				return false;
+			//need to ensure loc2's variable name only exists as a field:
+			Symbol symbol = findSymbol(loc2.getName(),
+					Arrays.asList(new Kind[] { Kind.VARIABLE, Kind.FORMAL } ),
+					loc2.getEnclosingScope(), loc2.getLine());
+			
+			//if symbol is null, both refer to the class field:
+			return (symbol == null);
+		}
+		
+		//both have externals... need to ensure they match:
+		
+		if (loc1.getLocation() instanceof This && loc2.getLocation() instanceof This)
+			return true;
+		
+		//not handling externals that are arrays: requires index checking that's
+		//also a bit of an overhead...
+		if (!(loc1.getLocation() instanceof VariableLocation) ||
+				!(loc2.getLocation() instanceof VariableLocation))
+			return false;
+		
+		//it's always enough to compare names in assignment - both lhs and rhs
+		//are in the same specific scope, therefore both refer to the same symbol.
+		return ((VariableLocation)loc1.getLocation()).getName().equals(
+				((VariableLocation)loc2.getLocation()).getName());
+	}
+	
+	/*
+	 * check if expression is new array expression and if so, returns the NewArray
+	 * expression. otherwise returns null.
+	 */
+	private NewArray isNewArray(Expression expr)  {
+		NewArray newArray = null;
+		if (expr instanceof ArrayLocation) {
+			ArrayLocation arrayLocation = (ArrayLocation)expr;
+			while (true) {
+				Expression array = arrayLocation.getArray();
+				if (!(array instanceof ArrayLocation)) {
+					if (array instanceof NewArray) {
+						newArray = (NewArray)array;
+					}
+					break;
+				}
+				arrayLocation = (ArrayLocation)array;
+			}
+		}
+		return newArray;
+	}
+	
 	@Override
 	public Object visit(Assignment assignment) {
-
-		//TODO: for this and local variable as well, handle the scenario:
-		//		boolean b = (a < b);
 		
-		Operand var = (Operand)assignment.getVariable().accept(this);
-
+		//raise flags if assignment of variable to itself (i.e. x = x + y).
+		//the following checks for non-array locations (we don't have special handling for a[i] = a[i] + y).
+		
 		changingMyOwnValueOperand1 = (assignment.getVariable() instanceof VariableLocation
 				&& assignment.getAssignment() instanceof MathBinaryOp
 				&& ((MathBinaryOp)assignment.getAssignment()).getFirstOperand() instanceof VariableLocation
 				&& ((VariableLocation)((MathBinaryOp)assignment.getAssignment()).getFirstOperand())
-					.getName().equals(((VariableLocation)assignment.getVariable()).getName()));
+					.getName().equals(((VariableLocation)assignment.getVariable()).getName())
+				&& matchExternals((VariableLocation)assignment.getVariable(),
+						((VariableLocation)((MathBinaryOp)assignment.getAssignment()).getFirstOperand())));
 		
 		changingMyOwnValueOperand2 = (assignment.getVariable() instanceof VariableLocation
 				&& assignment.getAssignment() instanceof MathBinaryOp
 				&& ((MathBinaryOp)assignment.getAssignment()).getSecondOperand() instanceof VariableLocation
 				&& ((VariableLocation)((MathBinaryOp)assignment.getAssignment()).getSecondOperand())
-					.getName().equals(((VariableLocation)assignment.getVariable()).getName()));
-				
+					.getName().equals(((VariableLocation)assignment.getVariable()).getName())
+				&& matchExternals((VariableLocation)assignment.getVariable(),
+						((VariableLocation)((MathBinaryOp)assignment.getAssignment()).getSecondOperand())));
+		
+		// find out if assignment is binary logical expression (unary does not require
+		// jumps on its own). If so, set jump label and jump.
+		Expression expr = assignment.getAssignment();
+		//could be !!!!(a < b)
+		while ((expr instanceof ExpressionBlock) || (expr instanceof LogicalUnaryOp)) {
+			if (expr instanceof ExpressionBlock)
+				expr = ((ExpressionBlock)expr).getExpression();
+			else
+				expr = ((LogicalUnaryOp)expr).getOperand();
+		}
+		
+		boolean booleanAssignment = (expr instanceof LogicalBinaryOp);
+		Label assignmentLabel = null;
+		
+		if (booleanAssignment) {
+			assignmentLabel = LabelMaker.get(assignment,
+					LabelMaker.labelString(currentClass, currentMethod, "_false_boolean_assign_label"));
+			jumpToLabelIfConditionIsFalse = assignmentLabel;
+		}
+		
+		//first run assignment and then run variable - not the other way around.
+		//it may not really matter, however if assignment is using the variable
+		//in its' expression, it may load it to a register and therefore
+		//calling variable after assignment is the better approach.
+		//helps us prevent a case where for field x the statement x = x + z,
+		//is translated to:
+		//		MoveField R1.1, R2
+		//		Move R2, R3
+		//		Add z,R3
+		//		Move R3, R1.1
+		// (when x is used again later [which is also why we use R3 and don't
+		//  simply override R2 with the calculation's value])
 		Object assign = assignment.getAssignment().accept(this);
+		lhsOfAssignmentStatement = true;
+		Operand var = (Operand)assignment.getVariable().accept(this);
+		lhsOfAssignmentStatement = false;
 		
 		changingMyOwnValueOperand1 = changingMyOwnValueOperand2 = false;
+		if (booleanAssignment)
+			jumpToLabelIfConditionIsFalse = null;
 		
 		//check if we're doing a simple x = x + 1 or x = x - 1;
 		//we can replace this using simple inc() and dec() LIR instructions
@@ -630,7 +816,6 @@ public class TranslateIC2LIR implements Visitor {
 			return null;
 
 		BasicOperand assignOp = null;
-		//TODO: what if assignOp is register offset, array location, etc...
 		if (assign instanceof BasicOperand) {
 			assignOp = (BasicOperand)assign;
 		} else if (assign instanceof LIR.Instructions.ArrayLocation) {
@@ -644,7 +829,7 @@ public class TranslateIC2LIR implements Visitor {
 			currentMethodInstructions.add(
 					new FieldLoad(assignment,
 							(RegisterOffset)assign,
-							(Register)assignOp));			
+							(Register)assignOp));
 		}
 		
 		if (var instanceof RegisterOffset) {
@@ -653,9 +838,22 @@ public class TranslateIC2LIR implements Visitor {
 					new FieldStore(
 							assignment, assignOp, (RegisterOffset)var));
 			
+			if (assignment.getAssignment() instanceof NewArray) {
+				RegisterPool.putback((Register)assignOp);
+			} else if (assignOp instanceof Register) {
+				//push back if no longer needed:
+				Symbol sym = variables.getSymbol((Register)assignOp);
+				if (sym == null ||
+						//or 'variables' information is garbage - not relevant to assignOp...
+						((var instanceof Memory) && !sym.getID().equals(((Memory)var).getVariableName())) ||
+						//or this is the last statement using this symbol in this method
+						isSymbolNoLongerInUse(sym))
+					RegisterPool.putback((Register)assignOp);
+			}
+			
 			//if register offset is not longer needed, dispose of it:
 			Symbol symbol = variables.getSymbol(((RegisterOffset)var).getRegister());
-			if (isSymbolNoLongerInUse(symbol))
+			if (symbol == null || isSymbolNoLongerInUse(symbol))
 				RegisterPool.putback(((RegisterOffset)var).getRegister());
 		
 		} else if (var instanceof LIR.Instructions.ArrayLocation) {
@@ -666,6 +864,11 @@ public class TranslateIC2LIR implements Visitor {
 			
 			if (assignOp instanceof Register)
 				RegisterPool.putback((Register)assignOp);
+			
+			//if array is not longer needed, dispose of it:
+			Symbol symbol = variables.getSymbol(((LIR.Instructions.ArrayLocation)var).getArray());
+			if (symbol != null && isSymbolNoLongerInUse(symbol))
+				RegisterPool.putback(((LIR.Instructions.ArrayLocation)var).getArray());
 			
 		} else if (var instanceof BasicOperand) {
 			
@@ -684,9 +887,10 @@ public class TranslateIC2LIR implements Visitor {
 				} else if (assignOp instanceof Register) {
 					//we're trying to do Move R1,x
 					//check if R1 will still be used later on. If so,
-					//don't move it back, keep the register:
+					//don't move it back, keep the register (of course
+					//for that to be relevant, we'd need R1 symbol to be x):
 					
-					//TODO: think about external
+					//(todo not dealt with removed): think about external
 					Location location = assignment.getVariable();
 					while (location instanceof ArrayLocation) {
 						location = (Location)((ArrayLocation)location).getArray();
@@ -699,49 +903,92 @@ public class TranslateIC2LIR implements Visitor {
 					
 					//symbol != null : we passed declaration validation checks
 					
-					boolean stillUsed = (symbol instanceof ExtendedSymbol &&
-							((ExtendedSymbol)symbol).getLastStatementUsed(currentMethod) != null &&
-							((ExtendedSymbol)symbol).getLastStatementUsed(currentMethod) != assignment);
-					stillUsed |= (!(symbol instanceof ExtendedSymbol) &&
-							symbol.getLastStatementUsed() != null
-							&& symbol.getLastStatementUsed() != assignment);
+					Symbol registerSymbol = variables.getSymbol((Register)assignOp);
 					
-					if (stillUsed) {
-						//we'll be needing this one a bit more...
-						markWhenLastUsed(symbol, (Register)assignOp);						
-						return null;
+					//if registerSymbol == null, assignOp is a temporary register...
+					//of course, this could also be garbage, ensure assignOp is
+					//register for var...
+					//also ensure: if assign is array location or register offset,
+					//we just grabbed this register from the pool and might want
+					//to keep it if the variable we're assigning will still be used.
+					
+					boolean newAssignRegister = (assign instanceof RegisterOffset ||
+							assign instanceof LIR.Instructions.ArrayLocation);
+					
+					if (registerSymbol == null || newAssignRegister ||
+							registerSymbol.getID().equals(((VariableLocation)location).getName())) {
+										
+						boolean stillUsed = (symbol instanceof ExtendedSymbol &&
+								((ExtendedSymbol)symbol).getLastStatementUsed(currentMethod) != null &&
+								((ExtendedSymbol)symbol).getLastStatementUsed(currentMethod) != assignment);
+						stillUsed |= (!(symbol instanceof ExtendedSymbol) &&
+								symbol.getLastStatementUsed() != null
+								&& symbol.getLastStatementUsed() != assignment);
+						
+						if (stillUsed) {
+							//we'll be needing this one a bit more...
+							markWhenLastUsed(symbol, (Register)assignOp);						
+							return null;
+						}
 					}
 
 				}
 			}
 			
-			//var := assignOp (if both memory, then var := R);
-
-			//make sure var and assign are not both the same register
-			//(could happen after Math for example (R1 = R1 * 8) and
-			// result was stored in R1 as well (Mul 8, R1). This is
-			// correct and efficient, but we do not need a move here).
+			if (booleanAssignment) {
+				
+				//true:
+				currentMethodInstructions.add(new Move(assignment,
+						new ConstantInteger(assignment, 1), var));
+				Label endLabel = LabelMaker.get(assignment,
+						LabelMaker.labelString(currentClass, currentMethod, "_end_assignment"));
+				currentMethodInstructions.add(new Jump(assignment, JumpOps.Jump, endLabel));
+				
+				//false:
+				currentMethodInstructions.add(assignmentLabel);
+				currentMethodInstructions.add(new Move(assignment,
+						new ConstantInteger(assignment, 0), var));
+				currentMethodInstructions.add(endLabel);
+				
+			} else {
 			
-			boolean varIsRegister = (var instanceof Register);
-			Operand assignmentOperand = (reg == null ? assignOp : reg);
-			boolean assignmentIsRegister = (assignmentOperand instanceof Register);
-			
-			if (!varIsRegister || !assignmentIsRegister || 
-					//either one is not register or both are but different:
-					(((Register)var).getNum() !=
-						((Register)assignmentOperand).getNum())) {
-				currentMethodInstructions.add(
-						new Move(assignment,
-								assignmentOperand,
-								var)
-						);
+				//var := assignOp (if both memory, then var := R);
+	
+				//make sure var and assign are not both the same register
+				//(could happen after Math for example (R1 = R1 * 8) and
+				// result was stored in R1 as well (Mul 8, R1). This is
+				// correct and efficient, but we do not need a move here).
+				
+				boolean varIsRegister = (var instanceof Register);
+				Operand assignmentOperand = (reg == null ? assignOp : reg);
+				boolean assignmentIsRegister = (assignmentOperand instanceof Register);
+				
+				if (!varIsRegister || !assignmentIsRegister || 
+						//either one is not register or both are but different:
+						(((Register)var).getNum() !=
+							((Register)assignmentOperand).getNum())) {
+					
+					currentMethodInstructions.add(
+							new Move(assignment,
+									assignmentOperand,
+									var)
+							);
+				}
 			}
 			
 			if (reg != null)
 				RegisterPool.putback(reg);
 		
-			if (assignOp instanceof Register)
-				RegisterPool.putback((Register)assignOp);
+			if (assignOp instanceof Register) {
+				//push back if no longer needed:
+				Symbol sym = variables.getSymbol((Register)assignOp);
+				if (sym == null ||
+						//or 'variables' information is garbage - not relevant to assignOp...
+						((var instanceof Memory) && !sym.getID().equals(((Memory)var).getVariableName())) ||
+						//or this is the last statement using this symbol in this method
+						isSymbolNoLongerInUse(sym))
+					RegisterPool.putback((Register)assignOp);
+			}
 
 		}
 				
@@ -757,9 +1004,18 @@ public class TranslateIC2LIR implements Visitor {
 	public Object visit(Return returnStatement) {
 
 		if (returnStatement.hasValue()) {
+			
+			BasicOperand op = (BasicOperand)returnStatement.getValue().accept(this);
+			
 			currentMethodInstructions.add(new LIR.Instructions.Return(
-					returnStatement,
-					(BasicOperand)returnStatement.getValue().accept(this)));
+					returnStatement, op));
+			
+			if (op instanceof Register) {
+				if (returnStatement.getValue() instanceof MathBinaryOp ||
+						returnStatement.getValue() instanceof ExpressionBlock)
+					RegisterPool.putback((Register)op);
+			}
+			
 		} else {
 			currentMethodInstructions.add(new LIR.Instructions.Return(
 					returnStatement,
@@ -902,7 +1158,6 @@ public class TranslateIC2LIR implements Visitor {
 		if (obj instanceof Register)
 			checkLastInstruction(whileStatement.getOperation(), (Register)obj);
 
-
 		labelsToBreak.pop();
 		labelsToContinue.pop();
 		
@@ -944,6 +1199,197 @@ public class TranslateIC2LIR implements Visitor {
 
 	}
 
+	private boolean localVariableInitValueContainsCalls(Expression initValue) {
+
+		if (initValue instanceof Call) {
+			return true;
+		}
+		
+		if (initValue instanceof ExpressionBlock) {
+			return localVariableInitValueContainsCalls(
+					((ExpressionBlock)initValue).getExpression());
+		}
+		
+		if (initValue instanceof MathBinaryOp) {
+			boolean op1 = localVariableInitValueContainsCalls(
+					((MathBinaryOp)initValue).getFirstOperand());
+			boolean op2 = localVariableInitValueContainsCalls(
+					((MathBinaryOp)initValue).getSecondOperand());
+			return op1 || op2;
+		}
+
+		if (initValue instanceof LogicalBinaryOp) {
+			boolean op1 = localVariableInitValueContainsCalls(
+					((LogicalBinaryOp)initValue).getFirstOperand());
+			boolean op2 = localVariableInitValueContainsCalls(
+					((LogicalBinaryOp)initValue).getSecondOperand());
+			return op1 || op2;
+		}
+		
+		if (initValue instanceof MathUnaryOp) {
+			return localVariableInitValueContainsCalls(
+					((MathUnaryOp)initValue).getOperand());
+		}
+
+		if (initValue instanceof LogicalUnaryOp) {
+			return localVariableInitValueContainsCalls(
+					((LogicalUnaryOp)initValue).getOperand());
+		}
+		
+		if (initValue instanceof Length) {
+			return localVariableInitValueContainsCalls(
+					((Length)initValue).getArray());
+		}
+		
+		return false;
+
+	}
+	
+	private Object initNewArray(Expression expr, NewArray newArray) {
+		
+		if (expr instanceof NewArray) {
+			//one dimensional array...
+			return newArray.accept(this);
+		}
+		
+		List<Register> registersToDispose = new LinkedList<Register>();
+
+		List<BasicOperand> dimensionSizes = new LinkedList<BasicOperand>();
+		Map<BasicOperand, Register> basics = new HashMap<BasicOperand, Register>();
+		
+		Expression array = expr;
+		while (array instanceof ArrayLocation) {
+			Object size = ((ArrayLocation)array).getIndex().accept(this);
+			Register sizeReg = null;
+			if (size instanceof Register) {
+				sizeReg = (Register)size;
+			} else {
+				sizeReg = RegisterPool.get(newArray);
+				registersToDispose.add(sizeReg);
+				if (size instanceof RegisterOffset) {
+					currentMethodInstructions.add(new FieldLoad(
+							newArray, (RegisterOffset)size, sizeReg));
+				} else if (size instanceof LIR.Instructions.ArrayLocation) {
+					currentMethodInstructions.add(new ArrayLoad(
+							newArray,
+							(LIR.Instructions.ArrayLocation)size,
+							sizeReg));
+				} else {
+					boolean alreadyAdded = false;
+					if (size instanceof ConstantInteger) {
+						for (BasicOperand bo : basics.keySet()) {
+							if (bo instanceof ConstantInteger &&
+									((ConstantInteger)bo).getValue() == ((ConstantInteger)size).getValue()) {
+								alreadyAdded = true;
+								dimensionSizes.add(0, basics.get(bo));
+								break;
+							}
+						}
+					} else if (size instanceof Memory) {
+						for (BasicOperand bo : basics.keySet()) {
+							if (bo instanceof Memory &&
+									((Memory)bo).getVariableName().equals(((Memory)size).getVariableName())) {
+								alreadyAdded = true;
+								dimensionSizes.add(0, basics.get(bo));
+								break;								
+							}
+						}
+					}
+					
+					if (!alreadyAdded) {
+						currentMethodInstructions.add(new Move(newArray,
+								(BasicOperand)size, sizeReg));
+						basics.put((BasicOperand)size, sizeReg);
+						dimensionSizes.add(0, sizeReg);
+					} else {
+						RegisterPool.putback(sizeReg);
+						registersToDispose.remove(sizeReg);
+					}
+				}
+			}
+			array = ((ArrayLocation)array).getArray();
+		}
+		
+		//if we have new array[size1][size2][size3]..
+		//we need to init an array of size1, and then go over 0 to size1-1
+		//of its' indexes and init each one of them with an array of size2
+		//and then its' one of its' indexes as an array of size3.
+		
+		Register reg = (Register)createNewArray(newArray,
+				((NewArray)array).getSize().accept(this));
+		
+		int count = dimensionSizes.size();
+		Register[] arrays = new Register[count+1];
+		arrays[0] = reg;
+
+		Register[] registers = new Register[count];
+		
+		Stack<Label> labels = new Stack<Label>();
+		
+		for (int i = 0; i < count; i++) {
+			
+			Register r1 = RegisterPool.get(newArray);
+			registersToDispose.add(r1);
+			registers[i] = r1;
+			
+			currentMethodInstructions.add(new Move(newArray,
+					new ConstantInteger(newArray, 0), r1));
+			
+			Label condLabel = LabelMaker.get(newArray, LabelMaker.labelString(
+					currentClass, currentMethod, "_allocation_while"));
+			
+			Label endLabel = LabelMaker.get(newArray, LabelMaker.labelString(
+					currentClass, currentMethod, "_allocation_end"));
+			
+			labels.push(endLabel);
+			labels.push(condLabel);
+			
+			currentMethodInstructions.add(condLabel);
+			
+			BasicOperand bo = dimensionSizes.get(i);
+			Register r2 = null;
+			if (bo instanceof Register) {
+				r2 = (Register)bo;
+			} else {
+				r2 = RegisterPool.get(newArray);
+				registersToDispose.add(r2);
+				currentMethodInstructions.add(new Move(newArray, bo, r2));
+			}
+			
+			currentMethodInstructions.add(new BinaryLogical(newArray,
+					BinaryOps.Compare, r1, r2));
+			currentMethodInstructions.add(new Jump(newArray, JumpOps.JumpLE, endLabel));
+			
+			LibraryCall libcall = new LibraryCall(newArray, "__allocateArray", null);
+			Register tmp = RegisterPool.get(newArray);
+			registersToDispose.add(tmp);
+			currentMethodInstructions.add(new Move(newArray, dimensionSizes.get(i), tmp));
+			currentMethodInstructions.add(new BinaryArithmetic(newArray, BinaryOps.Mul,
+					new ConstantInteger(newArray, 4), tmp));
+			libcall.addParameter(tmp);
+			libcall.setReturnRegister(tmp);
+			arrays[i+1] = tmp;
+			currentMethodInstructions.add(libcall);
+			
+		}
+		
+		for (int i = count - 1; i >= 0; i--) {
+			
+			currentMethodInstructions.add(new ArrayStore(newArray, arrays[i+1],
+					new LIR.Instructions.ArrayLocation(newArray, arrays[i], registers[i])));
+			currentMethodInstructions.add(new UnaryArithmetic(newArray, UnaryOps.Inc, registers[i]));
+			currentMethodInstructions.add(new Jump(newArray, JumpOps.Jump, labels.pop()));
+			currentMethodInstructions.add(labels.pop());
+			
+		}
+		
+		for (Register r : registersToDispose) {
+			RegisterPool.putback(r);
+		}
+		
+		return reg;
+	}
+	
 	@Override
 	public Object visit(LocalVariable localVariable) {
 		
@@ -955,17 +1401,70 @@ public class TranslateIC2LIR implements Visitor {
 		
 		//symbol != null because we passed semantic checks
 		
+		boolean unusedDeclaration = false;
+		
 		if ((symbol instanceof ExtendedSymbol &&
 				((ExtendedSymbol)symbol).getLastStatementUsed(currentMethod) == null) ||
 			(!(symbol instanceof ExtendedSymbol) && symbol.getLastStatementUsed() == null)) {
 			//variables is declared but never used
-			//TODO: but... may have init value with a method call!
-			return null;
+			//but... may have init value with a method call! (god only knows what he's
+			//expecting that method to do, for instance, to fields... must call that method anyway):
+			if (!localVariable.hasInitValue() ||
+					!localVariableInitValueContainsCalls(localVariable.getInitValue())) {
+				return null;
+			}
+			unusedDeclaration = true;
 		}
 		
 		if (localVariable.hasInitValue()) {
 			
-			Object initValue = localVariable.getInitValue().accept(this);
+			// find out if init value is binary logical expression (unary does not require
+			// jumps on its own). If so, set jump label and jump.
+			Expression expr = localVariable.getInitValue();
+			//could be !!!!(a < b)
+			while ((expr instanceof ExpressionBlock) || (expr instanceof LogicalUnaryOp)) {
+				if (expr instanceof ExpressionBlock)
+					expr = ((ExpressionBlock)expr).getExpression();
+				else
+					expr = ((LogicalUnaryOp)expr).getOperand();
+			}
+			
+			boolean booleanInit = (expr instanceof LogicalBinaryOp);
+			Label initLabel = null;
+			
+			if (booleanInit) {
+				initLabel = LabelMaker.get(localVariable,
+						LabelMaker.labelString(currentClass, currentMethod, "_false_boolean_init_label"));
+				jumpToLabelIfConditionIsFalse = initLabel;
+			}
+			
+			Object initValue;
+			NewArray newArray = isNewArray(localVariable.getInitValue());
+			if (newArray != null) {
+				initValue = initNewArray(localVariable.getInitValue(), newArray);
+			} else {			
+				initValue = localVariable.getInitValue().accept(this);
+			}
+			
+			if (booleanInit) {
+				
+				jumpToLabelIfConditionIsFalse = null;
+
+				//true:
+				currentMethodInstructions.add(new Move(localVariable,
+						new ConstantInteger(localVariable, 1),
+						new Memory(localVariable, localVariable.getName())));
+				Label endLabel = LabelMaker.get(localVariable,
+						LabelMaker.labelString(currentClass, currentMethod, "_init_assignment"));
+				currentMethodInstructions.add(new Jump(localVariable, JumpOps.Jump, endLabel));
+				
+				//false:
+				currentMethodInstructions.add(initLabel);
+				currentMethodInstructions.add(new Move(localVariable,
+						new ConstantInteger(localVariable, 0),
+						new Memory(localVariable, localVariable.getName())));
+				currentMethodInstructions.add(endLabel);
+			}
 			
 			Register reg = null;
 			boolean needToMoveReg = true;
@@ -983,7 +1482,7 @@ public class TranslateIC2LIR implements Visitor {
 						if (lastStatement == null || lastStatement == localVariable) {
 							int num = ((Register)initValue).getNum();
 							RegisterPool.putback((Register)initValue);
-							reg = RegisterPool.get(localVariable);//(Register)initValue;
+							reg = RegisterPool.get(localVariable);
 							needToMoveReg = (num != reg.getNum());
 							registerLastStatement.remove(initValue);
 						} else {
@@ -1014,26 +1513,30 @@ public class TranslateIC2LIR implements Visitor {
 				}
 				
 				if (needToMoveReg) {
-					currentMethodInstructions.add(
-							new Move(localVariable,
-									 (BasicOperand)initValue,
-									 (reg == null ?
-											 new Memory(localVariable, localVariable.getName())
-									 		: reg)
-							)
-					);
+					//only move if not both ends of the assignment are the same register:
+					if (reg == null || !(initValue instanceof Register) || (initValue instanceof Register
+							&& reg.getNum() != ((Register)initValue).getNum())) {
+						currentMethodInstructions.add(
+								new Move(localVariable,
+										 (BasicOperand)initValue,
+										 (reg == null ?
+												 new Memory(localVariable, localVariable.getName())
+										 		: reg)
+								)
+						);
+					}
 				}
 
 			} else if (initValue instanceof LIR.Instructions.ArrayLocation) {
 				
 				reg = RegisterPool.get(localVariable);
-				
+								
 				currentMethodInstructions.add(
 						new ArrayLoad(localVariable,
 								(LIR.Instructions.ArrayLocation)initValue,
 								reg));
 				
-				//TODO: think about external
+				//(todo not dealt with removed): think about external
 				Location location = (Location)localVariable.getInitValue();
 				
 				while (location instanceof ArrayLocation) {
@@ -1044,6 +1547,19 @@ public class TranslateIC2LIR implements Visitor {
 						((LIR.Instructions.ArrayLocation)initValue).getArray(),
 						((VariableLocation)location).getName(), localVariable);
 				
+			}
+			
+			if (localVariable.getInitValue() instanceof Call && unusedDeclaration) {
+				
+				LIRInstruction inst = currentMethodInstructions.get(
+						currentMethodInstructions.size() - 1);
+						
+				if (inst instanceof LIR.Instructions.Call) {
+					Register returnRegister = ((LIR.Instructions.Call)inst).getReturnRegister();
+					RegisterPool.putback(returnRegister);
+					((LIR.Instructions.Call)inst).setReturnRegister(
+							new Register(localVariable, Register.DUMMY));
+				}
 			}
 				
 
@@ -1059,12 +1575,45 @@ public class TranslateIC2LIR implements Visitor {
 	@Override
 	public Object visit(VariableLocation location) {
 		
-		//TODO: not necessarily BasicOperand, could also be offset (array / field)
 		BasicOperand external = null;
 		boolean thisKeyword = false;
+		IC.Semantics.Types.Type externalType = null;
+
 		if (location.isExternal()) {
-			external = (BasicOperand)location.getLocation().accept(this);
+			
+			Object externalValue = location.getLocation().accept(this);
 			thisKeyword = (location.getLocation() instanceof This);
+			
+			if (!thisKeyword) {
+				
+				if (externalValue instanceof BasicOperand) {
+				
+					external = (BasicOperand)externalValue;
+					externalType = external.getAssociactedICNode().getNodeType();
+					
+				} else if (externalValue instanceof RegisterOffset) {
+					
+					Register reg = RegisterPool.get(location);
+					externalType = ((RegisterOffset)externalValue).
+							getAssociactedICNode().getNodeType();
+					currentMethodInstructions.add(new FieldLoad(location,
+							(RegisterOffset)externalValue, reg));
+					external = reg;
+					
+					markWhenLastUsed(((RegisterOffset)externalValue).getSymbol(), reg);
+					
+				} else if (externalValue instanceof LIR.Instructions.ArrayLocation) {
+					
+					Register reg = RegisterPool.get(location);
+					externalType = ((LIR.Instructions.ArrayLocation)externalValue)
+							.getAssociactedICNode().getNodeType();
+					currentMethodInstructions.add(new ArrayLoad(location,
+							(LIR.Instructions.ArrayLocation)externalValue,
+							reg));
+					external = reg;
+					
+				}
+			}
 		}
 		
 		ClassScope classScope = null;
@@ -1072,9 +1621,9 @@ public class TranslateIC2LIR implements Visitor {
 			if (thisKeyword) {
 				classScope = (ClassScope)currentClass.getEnclosingScope();
 			} else {
-			classScope = (ClassScope)ScopesTraversal.getClassScopeByName(
+				classScope = (ClassScope)ScopesTraversal.getClassScopeByName(
 					location.getEnclosingScope(),
-					external.getAssociactedICNode().getNodeType().getName());
+					externalType.getName());
 			}
 		}
 		
@@ -1096,6 +1645,16 @@ public class TranslateIC2LIR implements Visitor {
 				return new Memory(location, symbol.getID());
 			case FIELD:
 
+				//if lefthand side of assignment into field of current class (no externals
+				//since they are objects and only matter in their own scope):
+				if (lhsOfAssignmentStatement && (thisKeyword || external == null)) {
+					//only keep track of primitive non-array types:
+					if (symbol.getType() instanceof IC.Semantics.Types.PrimitiveType
+							&& symbol.getType().getDimension() == 0) {
+						currentMethodFieldsAssignment.add((ExtendedSymbol)symbol);
+					}
+				}
+				
 				if (variables.containsKey(symbol))
 					return variables.get(symbol);
 												
@@ -1107,7 +1666,7 @@ public class TranslateIC2LIR implements Visitor {
 
 				Register reg;
 
-				if (location.isExternal()) {
+				if (location.isExternal() && !thisKeyword) {
 					if (external instanceof Register) {
 						reg = (Register)external;
 					} else {
@@ -1168,6 +1727,8 @@ public class TranslateIC2LIR implements Visitor {
 			Register reg = ((RegisterOffset)array).getRegister();
 			if (isSymbolNoLongerInUse(variables.getSymbol(reg))) {
 				RegisterPool.putbackAfterNextGet(reg);
+				registerLastStatement.remove(reg);
+				registerLastExpression.remove(reg);
 			}
 
 			//array is field, need to move the offset to register:
@@ -1182,6 +1743,12 @@ public class TranslateIC2LIR implements Visitor {
 					((RegisterOffset)array).getSymbol().getID(),
 					location);
 						
+		} else if (array instanceof LIR.Instructions.ArrayLocation) {
+			//multidimensional array
+			arrayOperand = RegisterPool.get(location);			
+			currentMethodInstructions.add(new ArrayLoad(
+					location, (LIR.Instructions.ArrayLocation)array, arrayOperand));
+			
 		} else if (array instanceof Memory) {
 			//move array to reg:
 			arrayOperand = RegisterPool.get(location);
@@ -1198,8 +1765,6 @@ public class TranslateIC2LIR implements Visitor {
 					(Memory)index, tmp));
 		}
 		
-		//TODO: when index is complex... (i.e. int[i+2])
-		
 		LIR.Instructions.ArrayLocation arrayLocation =
 				new LIR.Instructions.ArrayLocation(location, arrayOperand,
 						(tmp == null ? (BasicOperand)index : tmp));
@@ -1212,67 +1777,97 @@ public class TranslateIC2LIR implements Visitor {
 		return arrayLocation;
 	}
 
+	private Object doStaticCall(Call call, LIR.Instructions.Call lircall, StaticMethod staticMethod) {
+		
+		boolean library = (lircall instanceof LibraryCall);
+		
+		List<Register> registersForParams = new LinkedList<Register>();
+		
+		int count = call.getArguments().size();
+		for (int i = 0; i < count; i++) {
+			
+			Expression expr = call.getArguments().get(i);
+			
+			Object obj = expr.accept(this);
+			
+			BasicOperand param = null;
+			if (obj instanceof BasicOperand) {
+				param = (BasicOperand)obj;
+				if (expr instanceof MathBinaryOp && param instanceof Register)
+					registersForParams.add((Register)param);
+			} else if (obj instanceof LIR.Instructions.ArrayLocation) {
+				param = RegisterPool.get(call);
+				registersForParams.add((Register)param);
+				currentMethodInstructions.add(new ArrayLoad(call,
+						(LIR.Instructions.ArrayLocation)obj,
+						(Register)param));
+			} else if (obj instanceof RegisterOffset) {
+				param = RegisterPool.get(call);
+				registersForParams.add((Register)param);
+				currentMethodInstructions.add(new FieldLoad(call,
+						(RegisterOffset)obj,
+						(Register)param));					
+			}
+			
+			if (library) {
+				((LibraryCall)lircall).addParameter(param);
+			} else {
+				((LIR.Instructions.StaticCall)lircall).addParameter(
+						new Memory(call, staticMethod.getFormals().get(i).getName()),
+						(BasicOperand)obj);
+			}
+		}
+					
+		Register returnRegister;
+		if (call.getNodeType().getName().equals(DataTypes.VOID.getDescription())) {
+			//return type is void, return dummy value:
+			returnRegister = new Register(call, Register.DUMMY);
+		} else {
+			returnRegister = RegisterPool.get(call);
+		}
+
+		//put return register at the end so to keep readable and
+		//coherent LIR code (since parameter calculation is done
+		//before actual call, don't "hog" this register at the beginning):
+		lircall.setReturnRegister(returnRegister);
+		currentMethodInstructions.add(lircall);
+		
+		for (Register reg : registersForParams) {
+			RegisterPool.putback(reg);
+		}
+
+		return returnRegister;
+		
+	}
+	
 	@Override
 	public Object visit(StaticCall call) {
 
-		//TODO: not library methods
+		LIR.Instructions.Call lircall;
+		StaticMethod staticMethod = null;
 		
 		if (call.getClassName().equals("Library") && supportsLibrary) {
-						
-			LibraryCall libCall = new LibraryCall(call,
+		
+			lircall = new LibraryCall(call,
 					"__" + call.getName(),
 					null);
+		} else {
 			
-			List<Register> registersForParams = new LinkedList<Register>();
+			lircall = new LIR.Instructions.StaticCall(
+					call,
+					//regenerate label for static method:
+					LabelMaker.methodString(call.getClassName(), call.getName(), true),
+					null);
 			
-			for (Expression expr : call.getArguments()) {
-				
-				Object obj = expr.accept(this);
-				
-				BasicOperand param = null;
-				if (obj instanceof BasicOperand) {
-					param = (BasicOperand)obj;
-					if (expr instanceof MathBinaryOp && param instanceof Register)
-						registersForParams.add((Register)param);
-				} else if (obj instanceof LIR.Instructions.ArrayLocation) {
-					param = RegisterPool.get(call);
-					registersForParams.add((Register)param);
-					currentMethodInstructions.add(new ArrayLoad(call,
-							(LIR.Instructions.ArrayLocation)obj,
-							(Register)param));
-				} else if (obj instanceof RegisterOffset) {
-					param = RegisterPool.get(call);
-					registersForParams.add((Register)param);
-					currentMethodInstructions.add(new FieldLoad(call,
-							(RegisterOffset)obj,
-							(Register)param));					
-				}
-				
-				libCall.addParameter(param);
-			}
-						
-			Register returnRegister;
-			if (call.getNodeType().getName().equals(DataTypes.VOID.getDescription())) {
-				//return type is void, return dummy value:
-				returnRegister = new Register(call, Register.DUMMY);
-			} else {
-				returnRegister = RegisterPool.get(call);
-			}
-
-			//put return register at the end so to keep readable and
-			//coherent LIR code (since parameter calculation is done
-			//before actual call, don't "hog" this register at the beginning):
-			libCall.setReturnRegister(returnRegister);
-			currentMethodInstructions.add(libCall);
+			ClassScope scope = (ClassScope)ScopesTraversal.getClassScopeByName(
+					call.getEnclosingScope(), call.getClassName());
+			Symbol method = scope.getStaticSymbol(call.getName());
+			staticMethod = (StaticMethod)method.getNode();
 			
-			for (Register reg : registersForParams) {
-				RegisterPool.putback(reg);
-			}
-
-			return returnRegister;
 		}
 		
-		return null;
+		return doStaticCall(call, lircall, staticMethod);
+		
 	}
 
 	@Override
@@ -1347,20 +1942,24 @@ public class TranslateIC2LIR implements Visitor {
 			DispatchTable dt = dispatchTables.get(cls);
 			int offset = dt.getOffset(method);
 			
-			//TODO: handle externals
 			ExtendedSymbol classSymbol = (ExtendedSymbol)ScopesTraversal.findSymbol(
 					cls.getName(), Kind.CLASS,
 					(location == null ? call.getEnclosingScope() : classScope));
 			
 			Register thisRegister = null;
-			if (variables.containsKey(classSymbol))
-				thisRegister = variables.get(classSymbol);
-			else if (external != null && external instanceof Register)
+			if (external != null && external instanceof Register) {
 				thisRegister = (Register)external;
-			else {
+			} else if (external != null && external instanceof LIR.Instructions.ArrayLocation) {
+				thisRegister = RegisterPool.get(call);
+				currentMethodInstructions.add(new ArrayLoad(call,
+						(LIR.Instructions.ArrayLocation)external,
+						thisRegister));
+			} else if (variables.containsKey(classSymbol)) {
+				thisRegister = variables.get(classSymbol);
+			} else {
 				thisRegister = RegisterPool.get(call);
 				currentMethodInstructions.add(new Move(call,
-						new Memory(call, (location == null ? "this" : dt.getName())),
+						new Memory(call, (location == null ? "this" : ((VariableLocation)location).getName())),
 						thisRegister));
 				markWhenLastUsed(classSymbol, thisRegister);
 			}
@@ -1405,12 +2004,15 @@ public class TranslateIC2LIR implements Visitor {
 			}
 
 			//put return register last, so if this is statement
-			//but the value is not used, be can simply move it
+			//but the value is not used, we can simply move it
 			//to Rdummy without it seeing as if we took higher
 			//valued registers to calculate parameters:
 			returnRegister = RegisterPool.get(call);
 			lircall.setReturnRegister(returnRegister);
 
+			if (external != null && external instanceof LIR.Instructions.ArrayLocation)
+				RegisterPool.putback(thisRegister);
+			
 			currentMethodInstructions.add(lircall);
 			
 			for (Register reg : registersForParams) {
@@ -1419,8 +2021,14 @@ public class TranslateIC2LIR implements Visitor {
 			
 		} else {
 			
-			//TODO: static method
+			lircall = new LIR.Instructions.StaticCall(
+					call,
+					//regenerate label for static method:
+					LabelMaker.methodString(currentClass.getName(), call.getName(), true),
+					null);
 			
+			doStaticCall(call, lircall, (StaticMethod)methodSymbol.getNode());
+
 		}
 		
 		return returnRegister;
@@ -1479,10 +2087,7 @@ public class TranslateIC2LIR implements Visitor {
 		return reg;
 	}
 
-	@Override
-	public Object visit(NewArray newArray) {
-		
-		Object val = newArray.getSize().accept(this);
+	private Object createNewArray(ASTNode newArray, Object val) {
 		
 		Register reg;
 		
@@ -1497,8 +2102,17 @@ public class TranslateIC2LIR implements Visitor {
 			Register sizeReg;
 			if (!(val instanceof Register)) {
 				sizeReg = RegisterPool.get(newArray);
-				currentMethodInstructions.add(new Move(
-						newArray, (BasicOperand)val, sizeReg));
+				if (val instanceof RegisterOffset) {
+					currentMethodInstructions.add(new FieldLoad(
+							newArray, (RegisterOffset)val, sizeReg));
+				} else if (val instanceof LIR.Instructions.ArrayLocation) {
+					currentMethodInstructions.add(new ArrayLoad(
+							newArray, (LIR.Instructions.ArrayLocation)val,
+							sizeReg));
+				} else {
+					currentMethodInstructions.add(new Move(
+							newArray, (BasicOperand)val, sizeReg));
+				}
 			} else {
 				sizeReg = (Register)val;
 			}
@@ -1524,6 +2138,12 @@ public class TranslateIC2LIR implements Visitor {
 		}
 		
 		return reg;
+	}
+	
+	@Override
+	public Object visit(NewArray newArray) {		
+		return createNewArray(newArray, 
+				newArray.getSize().accept(this));
 	}
 
 	@Override
@@ -1611,29 +2231,8 @@ public class TranslateIC2LIR implements Visitor {
 	@Override
 	public Object visit(MathBinaryOp binaryOp) {
 
-		//TODO: not necessary BasicOperand!
-		
 		Operand op1 = (Operand)binaryOp.getFirstOperand().accept(this);
 		Operand op2 = (Operand)binaryOp.getSecondOperand().accept(this);
-		
-		if (binaryOp.getNodeType() instanceof IC.Semantics.Types.PrimitiveType &&
-				((IC.Semantics.Types.PrimitiveType)binaryOp.getNodeType()).getType() == DataTypes.STRING) {
-			
-			//we've validated types already - if on operand is string
-			//both are and this is a PLUS operation (i.e. string concatenation)
-			
-			LibraryCall call = new LibraryCall(binaryOp, "__stringCat", null);
-			//TODO: not necessarily basic operands :(
-			call.addParameter((BasicOperand)op1);
-			call.addParameter((BasicOperand)op2);
-
-			Register reg = RegisterPool.get(binaryOp);
-			call.setReturnRegister(reg);
-			currentMethodInstructions.add(call);
-			
-			return reg;
-			
-		}
 		
 		boolean op1Imm = false;
 		boolean op2Imm = false;
@@ -1655,7 +2254,7 @@ public class TranslateIC2LIR implements Visitor {
 			} else if (binaryOp.getOperator() == IC.BinaryOps.MULTIPLY) {
 				return new ConstantInteger(binaryOp, val2 * val1);
 			} else if (binaryOp.getOperator() == IC.BinaryOps.DIVIDE) {
-				//TODO: check division by zero
+				//when possible we've checked val1 != 0 in semantic checks!
 				return new ConstantInteger(binaryOp, val2 / val1);
 			} else if (binaryOp.getOperator() == IC.BinaryOps.MOD) {
 				return new ConstantInteger(binaryOp, val2 % val1);
@@ -1663,7 +2262,81 @@ public class TranslateIC2LIR implements Visitor {
 		}
 		
 		
+		boolean neededNewOp1Register = false;
+		boolean neededNewOp2Register = false;
+
+		if (op1 instanceof LIR.Instructions.ArrayLocation) {
+			//move location to register:
+			Register tmp = RegisterPool.get(binaryOp);
+			neededNewOp1Register = true;
+			currentMethodInstructions.add(new ArrayLoad(binaryOp,
+					((LIR.Instructions.ArrayLocation)op1),
+					tmp));
+			op1 = tmp;
+		} else if (op1 instanceof RegisterOffset) {
+			Register tmp = RegisterPool.get(binaryOp);
+			currentMethodInstructions.add(new FieldLoad(binaryOp,
+					(RegisterOffset)op1, tmp));
+			
+			if (isSymbolNoLongerInUse(((RegisterOffset)op1).getSymbol())) {
+				neededNewOp1Register = true;
+			} else {
+				markWhenLastUsed(((RegisterOffset)op1).getSymbol(), tmp);
+			}
+			
+			op1 = tmp;
+		}
+
+		if (op2 instanceof LIR.Instructions.ArrayLocation) {
+			//move location to register:
+			Register tmp = RegisterPool.get(binaryOp);
+			neededNewOp2Register = true;
+			currentMethodInstructions.add(new ArrayLoad(binaryOp,
+					((LIR.Instructions.ArrayLocation)op2),
+					tmp));
+			op2 = tmp;
+		} else if (op2 instanceof RegisterOffset) {
+			Register tmp = RegisterPool.get(binaryOp);
+			currentMethodInstructions.add(new FieldLoad(binaryOp,
+					(RegisterOffset)op2, tmp));
+			
+			if (isSymbolNoLongerInUse(((RegisterOffset)op2).getSymbol())) {
+				neededNewOp2Register = true;
+			} else {
+				markWhenLastUsed(((RegisterOffset)op2).getSymbol(), tmp);
+			}
+			
+			op2 = tmp;
+		}
+
+		if (binaryOp.getNodeType() instanceof IC.Semantics.Types.PrimitiveType &&
+				((IC.Semantics.Types.PrimitiveType)binaryOp.getNodeType()).getType() == DataTypes.STRING) {
+			
+			//we've validated types already - if on operand is string
+			//both are and this is a PLUS operation (i.e. string concatenation)
+			
+			LibraryCall call = new LibraryCall(binaryOp, "__stringCat", null);
+
+			call.addParameter((BasicOperand)op1);
+			call.addParameter((BasicOperand)op2);
+
+			Register reg = RegisterPool.get(binaryOp);
+			call.setReturnRegister(reg);
+			currentMethodInstructions.add(call);
+			
+			if (neededNewOp1Register)
+				RegisterPool.putback((Register)op1);
+
+			if (neededNewOp2Register)
+				RegisterPool.putback((Register)op2);
+
+			return reg;
+			
+		}
+		
 		Register result = null;
+		
+		boolean swapped = false;
 
 		//can only handle one immediate if it is either of op1, or if its' op2
 		//but the action is commutative (+/*). otherwise, we can't do anything special :(
@@ -1674,11 +2347,17 @@ public class TranslateIC2LIR implements Visitor {
 			
 			//both are not immediates!
 			if (op2Imm) {
-				//if op1 is the immediate, simply swap op1<-->op2
+				//if op2 is the immediate, simply swap op1<-->op2
 				//and treat both cases as the same (op1 is commutative!):
 				Operand tmp = op1;
 				op1 = op2;
 				op2 = tmp;
+				
+				swapped = true;
+				
+				boolean tmp2 = neededNewOp1Register;
+				neededNewOp1Register = neededNewOp2Register;
+				neededNewOp2Register = tmp2;
 			}
 			
 			if (changingMyOwnValueOperand1 | changingMyOwnValueOperand2) {
@@ -1699,8 +2378,21 @@ public class TranslateIC2LIR implements Visitor {
 					op1 = op2;
 					op2 = tmp;
 					result = (Register)op2;
+					swapped = true;
 				} //otherwise, we can't do anything. must add another instruction :(
 			}
+		}
+		
+		if (swapped) {
+			if (binaryOp.getFirstOperand() instanceof MathBinaryOp)
+				result = (Register)op2;
+			else if (binaryOp.getFirstOperand() instanceof ExpressionBlock)
+				result = (Register)op2;
+		} else {
+			if (binaryOp.getSecondOperand() instanceof MathBinaryOp)
+				result = (Register)op2;
+			else if (binaryOp.getSecondOperand() instanceof ExpressionBlock)
+				result = (Register)op2;
 		}
 		
 		if (result == null) {
@@ -1710,7 +2402,7 @@ public class TranslateIC2LIR implements Visitor {
 			//with the same num (reuse is happening right here, man)
 			if (!(op2 instanceof Register) ||
 					((Register)op2).getNum() != result.getNum())
-				currentMethodInstructions.add(new Move(binaryOp, op2, result));	
+				currentMethodInstructions.add(new Move(binaryOp, op2, result));						
 		}
 		
 		BinaryOps op = null;
@@ -1721,30 +2413,19 @@ public class TranslateIC2LIR implements Visitor {
 		} else if (binaryOp.getOperator() == IC.BinaryOps.MULTIPLY) {
 			op = BinaryOps.Mul;
 		} else if (binaryOp.getOperator() == IC.BinaryOps.DIVIDE) {
-			//TODO: check division by zero
 			op = BinaryOps.Div;
 		} else if (binaryOp.getOperator() == IC.BinaryOps.MOD) {
 			op = BinaryOps.Mod;
 		}
-		
-		BasicOperand basicOp1 = null;
-		boolean neededNewRegister = false;
-		if (op1 instanceof BasicOperand) {
-			basicOp1 = (BasicOperand)op1;
-		} else if (op1 instanceof LIR.Instructions.ArrayLocation) {
-			//move location to register:
-			basicOp1 = RegisterPool.get(binaryOp);
-			neededNewRegister = true;
-			currentMethodInstructions.add(new ArrayLoad(binaryOp,
-					((LIR.Instructions.ArrayLocation)op1),
-					(Register)basicOp1));
-		}
-		
-		currentMethodInstructions.add(new BinaryArithmetic(binaryOp, op, basicOp1, result));
-		
-		if (neededNewRegister)
-			RegisterPool.putback((Register)basicOp1);
 				
+		currentMethodInstructions.add(new BinaryArithmetic(binaryOp, op, (BasicOperand)op1, result));
+		
+		if (neededNewOp1Register)
+			RegisterPool.putback((Register)op1);
+
+		if (neededNewOp2Register)
+			RegisterPool.putback((Register)op2);
+
 		return result;
 
 	}
@@ -1754,10 +2435,8 @@ public class TranslateIC2LIR implements Visitor {
 		
 		if (!binaryOp.getOperator().isLogicalOperation()) {
 			
-			//TODO: op1 might be register offset
 			Operand op1 = (Operand)binaryOp.getFirstOperand().accept(this);
-			//TODO: op2 not necessarily basic operand
-			BasicOperand op2 = (BasicOperand)binaryOp.getSecondOperand().accept(this);
+			Operand op2 = (Operand)binaryOp.getSecondOperand().accept(this);
 			
 			BasicOperand basicOp1 = null;
 			if (op1 instanceof BasicOperand) {
@@ -1772,13 +2451,35 @@ public class TranslateIC2LIR implements Visitor {
 				//loading for comparison purposes, dispose of register when done:
 				registerLastStatement.put((Register)basicOp1, currentStatement);
 				registerLastExpression.put((Register)basicOp1, binaryOp);
+			} else if (op1 instanceof RegisterOffset) {
+				//move register offset to register:
+				basicOp1 = RegisterPool.get(binaryOp); 
+				currentMethodInstructions.add(new FieldLoad(
+						binaryOp,
+						(RegisterOffset)op1,
+						(Register)basicOp1));
+				//loading for comparison purposes, dispose of register when done:
+				registerLastStatement.put((Register)basicOp1, currentStatement);
+				registerLastExpression.put((Register)basicOp1, binaryOp);				
 			}
 
-			//move second operand (unless it's a reuse):
-			Register result = RegisterPool.get(binaryOp);
-			if (!(op2 instanceof Register)
-					|| ((op2 instanceof Register) && ((Register)op2).getNum() != result.getNum())) {
-				currentMethodInstructions.add(new Move(binaryOp, op2, result));
+			//move second to register (if not already register):
+			Register result = null;
+			if (op2 instanceof Register)
+				result = (Register)op2;
+			else {
+				result = RegisterPool.get(binaryOp);
+				if (op2 instanceof RegisterOffset) {
+					currentMethodInstructions.add(new FieldLoad(
+							binaryOp, (RegisterOffset)op2, result));
+				} else if (op2 instanceof LIR.Instructions.ArrayLocation) {
+					currentMethodInstructions.add(new ArrayLoad(
+							binaryOp, (LIR.Instructions.ArrayLocation)op2,
+							result));
+				} else {
+					currentMethodInstructions.add(new Move(
+							binaryOp, op2, result));
+				}
 			}
 			
 			currentMethodInstructions.add(new BinaryLogical(
@@ -1848,7 +2549,9 @@ public class TranslateIC2LIR implements Visitor {
 			}
 			
 			currentMethodInstructions.add(new Jump(binaryOp, jump, jumpToLabelIfConditionIsFalse));
-			RegisterPool.putback(result);
+			
+			if (!(op2 instanceof Register))
+				RegisterPool.putback(result);
 			
 			if (op1 instanceof Register) {
 				if (binaryOp.getFirstOperand() instanceof MathBinaryOp ||
@@ -1865,8 +2568,6 @@ public class TranslateIC2LIR implements Visitor {
 			}
 
 		} else { //op.isEquality() == true
-			
-			//TODO: not necessarily BasicOperand!
 			
 			boolean operand1IsConditional = (binaryOp.getFirstOperand() instanceof LogicalBinaryOp);
 			if (!operand1IsConditional) {
@@ -1913,7 +2614,7 @@ public class TranslateIC2LIR implements Visitor {
 			Register reg1 = null; 
 			Register reg2 = null;
 			
-			BasicOperand op1 = (BasicOperand)binaryOp.getFirstOperand().accept(this);
+			Operand op1 = (Operand)binaryOp.getFirstOperand().accept(this);
 			
 			if (op1 == null) {
 				//binaryOp.getFirstOperand() is LogicalBinary/UnaryOperation
@@ -1938,20 +2639,34 @@ public class TranslateIC2LIR implements Visitor {
 					reg1 = (Register)op1;
 				else {
 					reg1 = RegisterPool.get(binaryOp);
-					currentMethodInstructions.add(new Move(binaryOp, op1, reg1));
-
-					currentMethodInstructions.add(new BinaryLogical(binaryOp,
-							BinaryOps.Compare,
-							new ConstantInteger(binaryOp,
-									orOperation ? 1 : 0),
-							reg1));
+					if (op1 instanceof RegisterOffset) {
+						currentMethodInstructions.add(
+								new FieldLoad(binaryOp,
+									(RegisterOffset)op1,
+									reg1));
+					} else if (op1 instanceof LIR.Instructions.ArrayLocation) {
+						currentMethodInstructions.add(
+								new ArrayLoad(binaryOp,
+									(LIR.Instructions.ArrayLocation)op1,
+									reg1));
+					} else {
+						currentMethodInstructions.add(
+								new Move(binaryOp, op1, reg1));						
+					}
 				}
+
+				//compare R1 == (true if or / false if and)
+				currentMethodInstructions.add(new BinaryLogical(binaryOp,
+						BinaryOps.Compare,
+						new ConstantInteger(binaryOp,
+								orOperation ? 1 : 0),
+						reg1));
 
 				currentMethodInstructions.add(new Jump(binaryOp, JumpOps.JumpTrue, jumpToLabelIfConditionIsFalse));
 				
 			}
 			
-			BasicOperand op2 = (BasicOperand)binaryOp.getSecondOperand().accept(this);
+			Operand op2 = (Operand)binaryOp.getSecondOperand().accept(this);
 			
 			if (op2 == null) {
 				//binaryOp.getSecondOperand() is LogicalBinary/UnaryOperation
@@ -1964,7 +2679,19 @@ public class TranslateIC2LIR implements Visitor {
 					reg2 = (Register)op2;
 				else {
 					reg2 = RegisterPool.get(binaryOp);
-					currentMethodInstructions.add(new Move(binaryOp, op2, reg2));
+					if (op2 instanceof RegisterOffset) {
+						currentMethodInstructions.add(
+								new FieldLoad(binaryOp,
+									(RegisterOffset)op2,
+									reg2));
+					} else if (op2 instanceof LIR.Instructions.ArrayLocation) {
+						currentMethodInstructions.add(
+								new ArrayLoad(binaryOp,
+									(LIR.Instructions.ArrayLocation)op2,
+									reg2));
+					} else {
+						currentMethodInstructions.add(new Move(binaryOp, op2, reg2));
+					}
 				}
 				
 				//Compare = (R2 == true)

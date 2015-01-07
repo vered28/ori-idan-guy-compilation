@@ -28,7 +28,7 @@ POS_NUMBER = ({POS_DIGIT}({DIGIT}*))
 NUMBER = {POS_NUMBER}|0+
 
 NEWLINE=(\r?\n)|\r
-STRING=\"(.*?)\"
+STRING=\"([\\][\"]|[^\"\n\r])*\"
 WHITESPACE=([ ]|[\t]|{NEWLINE})+
 ALPHA=({LOWER_ALPHA}|{UPPER_ALPHA})+
 ALPHA_NUMERIC={LOWER_ALPHA}({ALPHA}|{NUMBER}|_)*
