@@ -7,6 +7,8 @@ package IC.AST;
  */
 public abstract class Expression extends ASTNode {
 
+	private int weight = -1;
+	
 	/**
 	 * Constructs a new expression node. Used by subclasses.
 	 * 
@@ -15,5 +17,13 @@ public abstract class Expression extends ASTNode {
 	 */
 	protected Expression(int line, int column) {
 		super(line, column);
+	}
+	
+	public int getWeight() {
+		return this.weight;
+	}
+	
+	public void setWeight(int weight) {
+		this.weight = weight;
 	}
 }

@@ -182,6 +182,7 @@ public class Compiler {
     					translation.run();
     				} catch (Exception e) {
     					System.err.println("unknown error while translating IC to LIR.");
+    					e.printStackTrace();
     				}
     				
 	    			if (printAST) {

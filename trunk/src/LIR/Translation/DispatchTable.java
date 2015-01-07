@@ -57,8 +57,12 @@ public class DispatchTable implements Cloneable {
 		methods.add(method);
 	}
 	
-	public void removeMethod(Method method) {
-		methods.remove(method);
+	public void replaceMethod(Method toRemove, Method toAdd) {
+		int indx = methods.indexOf(toRemove);
+		if (indx >= 0) {
+			methods.remove(toRemove);
+			methods.add(indx, toAdd);
+		}
 	}
 	
 	public void addField(Field field) {

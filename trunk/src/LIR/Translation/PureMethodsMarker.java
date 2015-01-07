@@ -1,18 +1,13 @@
 package LIR.Translation;
 
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.HashMap;
+import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
 
-import IC.LiteralTypes;
 import IC.AST.ArrayLocation;
 import IC.AST.Assignment;
 import IC.AST.Break;
 import IC.AST.CallStatement;
 import IC.AST.Continue;
-import IC.AST.Expression;
 import IC.AST.ExpressionBlock;
 import IC.AST.Field;
 import IC.AST.Formal;
@@ -45,162 +40,102 @@ import IC.AST.Visitor;
 import IC.AST.While;
 import IC.Semantics.Scopes.ClassScope;
 import IC.Semantics.Scopes.Kind;
+import IC.Semantics.Scopes.Scope;
 import IC.Semantics.Scopes.ScopesTraversal;
 import IC.Semantics.Scopes.Symbol;
 
-public class BuildGlobalConstants implements Visitor {
+public class PureMethodsMarker implements Visitor {
 
-	/* This class scans the AST and builds the String Literal
-	 * Set and the Dispatch Table for each class.
-	 */
+	private Method currentMethod;
+	private boolean pureness;
+	
+	private boolean assignmentFlag = false;
+	
+	private Symbol findSymbol(String id, List<Kind> kinds, Scope scope, int aboveLine) {
+		
+		Symbol symbol;
+		for (Kind k : kinds) {
+			if ((symbol = ScopesTraversal.findSymbol(id, k, scope, aboveLine)) != null)
+				return symbol;
+		}
 
-	private StringLiteralSet literals;
-	private Map<ICClass, DispatchTable> dispatchTables;
-	
-	private ICClass currentClass;
-	
-	public BuildGlobalConstants() {
-		this.literals = new StringLiteralSet();
-		this.dispatchTables = new HashMap<ICClass, DispatchTable>();
+		return null;
 	}
 	
 	@Override
 	public Object visit(Program program) {
-		
-		//first sort classes so that the non-inheriting ones will
-		//be checked first (and therefore when we reach their subclasses,
-		//their dispatch tables would have been defined by then).
-		List<ICClass> classes = program.getClasses();
-		Collections.sort(classes, new Comparator<ICClass>() {
-
-			@Override
-			public int compare(ICClass o1, ICClass o2) {
-				
-				if (!o1.hasSuperClass())
-					return -1;
-				
-				if (!o2.hasSuperClass())
-					return 1;
-				
-				//both o1 and o2 have super classes; if one is direct
-				//child of the other, sort so the parent is first.
-				//otherwise, it doesn't matter.
-				
-				if (o1.getSuperClassName().equals(o2.getName())) {
-					//o1 extends o2
-					return 1;
-				}
-				
-				if (o2.getSuperClassName().equals(o1.getName())) {
-					//o2 extends o1
-					return -1;
-				}
-				
-				//does not matter
-				return 0;
-			}
-		});
-		
-		for (ICClass cls : classes) {
+		for (ICClass cls : program.getClasses()) {
 			cls.accept(this);
 		}
-		
-		return new GlobalConstantsWrapper(literals, dispatchTables);
+		return null;
 	}
 
 	@Override
 	public Object visit(ICClass icClass) {
-		
-		if (!dispatchTables.containsKey(icClass)) {
-			DispatchTable dt = new DispatchTable(icClass.getName());
-			if (icClass.hasSuperClass()) {
-				dt = (DispatchTable)dispatchTables.get(
-						ScopesTraversal.getICClassFromClassScope(
-								(ClassScope)ScopesTraversal.getClassScopeByName(
-										icClass.getEnclosingScope(),
-										icClass.getSuperClassName()))
-						).clone();
-				dt.setName(icClass.getName());
-			}
-			dispatchTables.put(icClass, dt);
-		}
-		
-		currentClass = icClass;
-		
-		for (Field field : icClass.getFields()) {
-			field.accept(this);
-		}
-
 		for (Method method : icClass.getMethods()) {
+			pureness = true; //assume true, contradict when can
+			currentMethod = method;
 			method.accept(this);
+			currentMethod.setPure(pureness);
 		}
-		
 		return null;
 	}
 
 	@Override
 	public Object visit(Field field) {
-		dispatchTables.get(currentClass).addField(field);
+		//do nothing
 		return null;
 	}
 
 	@Override
 	public Object visit(VirtualMethod method) {
-		
-		//is override?
-		Symbol methodSymbol = ScopesTraversal.findSymbol(method.getName(),
-				Kind.VIRTUALMETHOD, currentClass.getEnclosingScope().getParentScope());
-		if (methodSymbol != null) {
-			dispatchTables.get(currentClass).replaceMethod(
-					(Method)methodSymbol.getNode(), method);
-		} else {
-			dispatchTables.get(currentClass).addMethod(method);
-		}
-		
 		for (Statement stmt : method.getStatements()) {
 			stmt.accept(this);
 		}
-		
 		return null;
 	}
 
 	@Override
 	public Object visit(StaticMethod method) {
-		//dispatch table is only for virtual methods
 		for (Statement stmt : method.getStatements()) {
 			stmt.accept(this);
-		}		
+		}
 		return null;
 	}
 
 	@Override
 	public Object visit(LibraryMethod method) {
-		// do nothing (no statements)
+		pureness = false;
 		return null;
 	}
 
 	@Override
 	public Object visit(Formal formal) {
-		// do nothing
+		//do nothing
 		return null;
 	}
 
 	@Override
 	public Object visit(PrimitiveType type) {
-		// do nothing
+		//do nothing
 		return null;
 	}
 
 	@Override
 	public Object visit(UserType type) {
-		// do nothing
+		//do nothing
 		return null;
 	}
 
 	@Override
 	public Object visit(Assignment assignment) {
+		
 		assignment.getAssignment().accept(this);
+		
+		assignmentFlag = true;
 		assignment.getVariable().accept(this);
+		assignmentFlag = false;
+
 		return null;
 	}
 
@@ -262,37 +197,126 @@ public class BuildGlobalConstants implements Visitor {
 
 	@Override
 	public Object visit(VariableLocation location) {
-		if (location.isExternal())
-			location.getLocation().accept(this);
+		//can read to be pure, cannot write!
+		if (assignmentFlag) {
+			
+			if (location.isExternal()) {
+				pureness = false;
+				return null;
+			}
+			
+			//not external... see if formal or field.
+			//field --> not pure!
+			//formal --> pure if primitive non-array type!
+			
+			Symbol symbol = findSymbol(location.getName(),
+					Arrays.asList(new Kind[] { Kind.VARIABLE, Kind.FORMAL, Kind.FIELD }),
+					location.getEnclosingScope(),
+					location.getLine());
+			
+			switch (symbol.getKind()) {
+				case VARIABLE:
+					return null;
+				case FIELD:
+					pureness = false;
+				case FORMAL:
+					IC.Semantics.Types.Type type = symbol.getType();
+					if (type.getDimension() > 0 ||
+							!(type instanceof IC.Semantics.Types.PrimitiveType)) {
+						pureness = false;
+					}
+				default:
+					//do nothing -- won't get here!
+			}
+		}
+		
 		return null;
 	}
 
 	@Override
 	public Object visit(ArrayLocation location) {
 		location.getArray().accept(this);
-		location.getIndex().accept(this);
+		location.getIndex().accept(this);		
 		return null;
 	}
 
 	@Override
 	public Object visit(StaticCall call) {
-		for (Expression expr : call.getArguments()) {
-			expr.accept(this);
+		
+		//only pure if method is pure:
+		
+		Symbol symbol = ScopesTraversal.findSymbol(call.getName(),
+				Kind.STATICMETHOD,
+				ScopesTraversal.getClassScopeByName(
+						call.getEnclosingScope(),
+						call.getClassName()));
+		
+		if (symbol != null) {
+			//remember, we assume all methods are impure, unless
+			//we've managed to proved they are. yet unchecked
+			//methods, even if pure, are considered impure.
+			if (!((Method)symbol.getNode()).isPure())
+				pureness = false;
 		}
+
 		return null;
 	}
 
 	@Override
 	public Object visit(VirtualCall call) {
 
-		if (call.isExternal())
-			call.getLocation().accept(this);
+		//the catch for virtual call -- it may also be a static
+		//call to a static method in the same class scope.
 		
-		for (Expression expr : call.getArguments()) {
-			expr.accept(this);
+		boolean virtualMethod = true;
+		
+		if (call.isExternal()) {
+			//be a harsh bastard - assume impureness
+			pureness = false;
+			return null;
+		}
+			
+		ClassScope currentScope = (ClassScope)call.getEnclosingScope();
+		Symbol staticSymbol = ScopesTraversal.findSymbol(
+				call.getName(), Kind.STATICMETHOD, currentScope);
+		
+		if (staticSymbol != null) {
+			
+			Symbol virtualSymbol = ScopesTraversal.findSymbol(
+					call.getName(), Kind.VIRTUALMETHOD, currentScope);
+						
+			if (virtualSymbol == null) {
+				//this is a static call:
+				virtualMethod = false;
+			} else {
+				
+				//two methods exist with the same name in this scope, one
+				//virtual and one static. Only one matches the number of
+				//arguments supplied by this call (we've verified it).
+				
+				int staticFormalSize = ((Method)staticSymbol.getNode()).getFormals().size();
+				int callArgumentsSize = call.getArguments().size();
+				if (staticFormalSize == callArgumentsSize) {
+					//this is a static call:
+					virtualMethod = false;
+				}
+				
+			}
+		}		
+
+		Symbol methodSymbol = ScopesTraversal.findSymbol(
+				call.getName(),
+				virtualMethod ? Kind.VIRTUALMETHOD : Kind.STATICMETHOD,
+				call.getEnclosingScope());
+		
+		if (methodSymbol != null) {
+			if (!((Method)methodSymbol.getNode()).isPure()) {
+				pureness = false;
+			}
 		}
 		
 		return null;
+		
 	}
 
 	@Override
@@ -315,7 +339,7 @@ public class BuildGlobalConstants implements Visitor {
 
 	@Override
 	public Object visit(Length length) {
-		length.getArray().accept(this);
+		// do nothing
 		return null;
 	}
 
@@ -347,8 +371,7 @@ public class BuildGlobalConstants implements Visitor {
 
 	@Override
 	public Object visit(Literal literal) {
-		if (literal.getType() == LiteralTypes.STRING)
-			literals.add(literal);
+		//do nothing
 		return null;
 	}
 
@@ -357,5 +380,5 @@ public class BuildGlobalConstants implements Visitor {
 		expressionBlock.getExpression().accept(this);
 		return null;
 	}
-	
+
 }

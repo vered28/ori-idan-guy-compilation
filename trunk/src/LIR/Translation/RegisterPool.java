@@ -41,8 +41,14 @@ public class RegisterPool {
 		waiting.add(reg.getNum());
 	}
 	
+	public static void flushPool() {
+		for (int i = 1; i <= counter; i++) {
+			pool.add(i);
+		}
+	}
+	
 	private static void clearWaiting() {
 		for (int i : waiting) { pool.add(i); }
 		waiting.clear();
-	}
+	}	
 }

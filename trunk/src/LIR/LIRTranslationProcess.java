@@ -12,9 +12,11 @@ import LIR.Translation.BuildGlobalConstants;
 import LIR.Translation.DispatchTable;
 import LIR.Translation.GlobalConstantsWrapper;
 import LIR.Translation.LIRPrinter;
+import LIR.Translation.PureMethodsMarker;
 import LIR.Translation.StringLiteralSet;
 import LIR.Translation.SymbolLastUsed;
 import LIR.Translation.TranslateIC2LIR;
+import LIR.Translation.WeighBySethiUllman;
 
 public class LIRTranslationProcess {
 
@@ -34,7 +36,10 @@ public class LIRTranslationProcess {
 		buildGlobalConstants();
 		findLastUsed();
 	
-		translate();
+		markPureMethods();
+		setWeightsToExpressions();
+		
+		translate();		
 		
 	}
 	
@@ -47,6 +52,14 @@ public class LIRTranslationProcess {
 	
 	private void findLastUsed() {
 		program.accept(new SymbolLastUsed());
+	}
+	
+	private void markPureMethods() {
+		program.accept(new PureMethodsMarker());
+	}
+	
+	private void setWeightsToExpressions() {
+		program.accept(new WeighBySethiUllman());
 	}
 	
 	private void translate() {
