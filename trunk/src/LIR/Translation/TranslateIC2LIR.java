@@ -1306,6 +1306,69 @@ public class TranslateIC2LIR implements Visitor {
 	private boolean localVariableInitValueContainsCalls(Expression initValue) {
 
 		if (initValue instanceof Call) {
+			
+			if (initValue instanceof StaticCall) {
+				
+				StaticCall call = (StaticCall)initValue;
+				Symbol symbol = ScopesTraversal.findSymbol(call.getName(),
+						Kind.STATICMETHOD,
+						ScopesTraversal.getClassScopeByName(
+								call.getEnclosingScope(),
+								call.getClassName()));
+				
+				//if method is pure, we can ignore this call...
+				return !((Method)symbol.getNode()).isPure();
+				
+			} else if (initValue instanceof VirtualCall) {
+				
+				//need to distinguish between virtual and yet another
+				//static possibility:
+				
+				VirtualCall call = (VirtualCall)initValue;
+				
+				boolean virtualMethod = true;
+				
+				if (call.isExternal()) {
+					//we assume externals hurt pureness
+					return true;
+				}
+					
+				ClassScope currentScope = (ClassScope)call.getEnclosingScope();
+				Symbol staticSymbol = ScopesTraversal.findSymbol(
+						call.getName(), Kind.STATICMETHOD, currentScope);
+				
+				if (staticSymbol != null) {
+					
+					Symbol virtualSymbol = ScopesTraversal.findSymbol(
+							call.getName(), Kind.VIRTUALMETHOD, currentScope);
+								
+					if (virtualSymbol == null) {
+						//this is a static call:
+						virtualMethod = false;
+					} else {
+						
+						//two methods exist with the same name in this scope, one
+						//virtual and one static. Only one matches the number of
+						//arguments supplied by this call (we've verified it).
+						
+						int staticFormalSize = ((Method)staticSymbol.getNode()).getFormals().size();
+						int callArgumentsSize = call.getArguments().size();
+						if (staticFormalSize == callArgumentsSize) {
+							//this is a static call:
+							virtualMethod = false;
+						}
+						
+					}
+				}		
+
+				Symbol methodSymbol = ScopesTraversal.findSymbol(
+						call.getName(),
+						virtualMethod ? Kind.VIRTUALMETHOD : Kind.STATICMETHOD,
+						call.getEnclosingScope());
+				
+				return !((Method)methodSymbol.getNode()).isPure();
+			}
+			
 			return true;
 		}
 		
