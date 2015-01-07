@@ -23,6 +23,7 @@ import IC.AST.Length;
 import IC.AST.LibraryMethod;
 import IC.AST.Literal;
 import IC.AST.LocalVariable;
+import IC.AST.Location;
 import IC.AST.LogicalBinaryOp;
 import IC.AST.LogicalUnaryOp;
 import IC.AST.MathBinaryOp;
@@ -85,6 +86,14 @@ public class SymbolLastUsed implements Visitor {
 	//not loaded to register):
 	private boolean considerAsUsedIfAlreadyUsed = false;
 	
+	//raise flag to mark when location of variable is done during left-hand
+	//side of assignment (lhs := rhs). why? because for fields, even if they
+	//were already used, we still need to mark their class as being used
+	//because we'd need to write their values at the end of their last
+	//assignment / use (they matter in other methods as well!)
+	private boolean assignmentVariable = false;
+	private Set<ExtendedSymbol> fieldsAssignedToInCurrentMethod = null;
+	
 	private Symbol findSymbol(String id, List<Kind> kinds, Scope scope, int aboveLine) {
 		return findSymbol(id, kinds, scope, aboveLine, false);
 	}
@@ -113,6 +122,7 @@ public class SymbolLastUsed implements Visitor {
 	public Object visit(ICClass icClass) {
 		for (Method method : icClass.getMethods()) {
 			currentMethod = method;
+			fieldsAssignedToInCurrentMethod = new HashSet<ExtendedSymbol>();
 			method.accept(this);
 		}
 		return null;
@@ -168,7 +178,11 @@ public class SymbolLastUsed implements Visitor {
 
 	@Override
 	public Object visit(Assignment assignment) {
+		
+		assignmentVariable = true;
 		assignment.getVariable().accept(this);
+		assignmentVariable = false;
+		
 		assignment.getAssignment().accept(this);		
 		return null;
 	}
@@ -314,10 +328,13 @@ public class SymbolLastUsed implements Visitor {
 				//(or it is marked to ignore for consideration):
 				boolean used = ((sym instanceof ExtendedSymbol &&
 						((ExtendedSymbol)sym).getLastStatementUsed(currentMethod) != null)
-						|| (!(sym instanceof ExtendedSymbol) &&sym.getLastStatementUsed() != null));
+						|| (!(sym instanceof ExtendedSymbol) && sym.getLastStatementUsed() != null));
 				
-				//check if we need DV_PTR (using field that wasn't used before)
-				boolean unusedFieldAccess = (sym.getKind() == Kind.FIELD && !used);
+				//check if we need DV_PTR (using field that wasn't used before or that its'
+				//value is changing or was changed [will need DV_PTR to write value back to offset])
+				boolean unusedFieldAccess = (sym.getKind() == Kind.FIELD &&
+							(!used || fieldsAssignedToInCurrentMethod.contains(sym)));
+				
 				ExtendedSymbol classSymbol = null;
 				if (unusedFieldAccess) {
 					 classSymbol = (ExtendedSymbol)
@@ -334,8 +351,17 @@ public class SymbolLastUsed implements Visitor {
 										(considerAsUsedIfAlreadyUsed && used))))) {						
 										
 					if (sym instanceof ExtendedSymbol) {
-
+						
 						ExtendedSymbol extended = (ExtendedSymbol)sym;
+
+						if (sym.getKind() == Kind.FIELD && assignmentVariable) {
+							//only track non-array primitive types:
+							if (sym.getType().getDimension() == 0 &&
+									sym.getType() instanceof IC.Semantics.Types.PrimitiveType) {
+								fieldsAssignedToInCurrentMethod.add(extended);
+							}
+						}
+
 						extended.setLastStatementUsed(currentMethod, currentStatement);
 						if (!currentExpression.isEmpty()) {
 							extended.setLastExpressionUsed(currentMethod, currentExpression.peek());
@@ -425,36 +451,60 @@ public class SymbolLastUsed implements Visitor {
 	@Override
 	public Object visit(VirtualCall call) {
 		
+		ExtendedSymbol classSymbol;
+		int dimension = 0;
 		if (call.isExternal()) {
 			//don't worry about internals of externals:
 			//a.foo()
 			//just need to check if a is used or not
 			call.getLocation().accept(this);
+			
+			//mark a's DV_PTR as needing to be used (since virtual
+			//calls are of the form "VirtualCall Rx.offset()
+			Location location = (Location)call.getLocation();
+			while (location instanceof ArrayLocation) {
+				dimension++;
+				location = (Location)((ArrayLocation)location).getArray();
+			}
+			
+			IC.Semantics.Types.UserType type = (IC.Semantics.Types.UserType)
+					((VariableLocation)location).getNodeType();
+			
+			classSymbol = (ExtendedSymbol)ScopesTraversal.
+					findSymbol(type.getName(), Kind.CLASS,
+							call.getEnclosingScope());
+			
 		} else {
 		
-			 ExtendedSymbol classSymbol = (ExtendedSymbol)
+			classSymbol = (ExtendedSymbol)
 						ScopesTraversal.findSymbol(
 						currentClass.getName(),
 						Kind.CLASS, call.getEnclosingScope());
+		}
 			 
-			 if (whileLoop.isEmpty()) {
-				 //not inside loop:
+			 
+		if (whileLoop.isEmpty()) {
+			 //not inside loop:
+			 //if external, define class as being used as long as not [used] array
+			 
+			 if (!call.isExternal() || (call.isExternal() &&
+					 (dimension == 0 || (dimension > 0 &&
+							 classSymbol.getLastStatementUsed(currentMethod) == null)))) {
 				 classSymbol.setLastStatementUsed(currentMethod, currentStatement);
 				 classSymbol.setLastExpressionUsed(currentMethod, call);
-			 } else {
-				 
-				symbolsUsedInCurrentWhileLoop.add(classSymbol);
-					
-				if (symbolsUsedInWhileLoop.containsKey(classSymbol)) {
-					int count = symbolsUsedInWhileLoop.get(classSymbol);
-					symbolsUsedInWhileLoop.put(classSymbol, count+1);
-				} else {
-					symbolsUsedInWhileLoop.put(classSymbol, 1);
-				}
-
 			 }
+		 } else {
+			 
+			symbolsUsedInCurrentWhileLoop.add(classSymbol);
+			
+			if (symbolsUsedInWhileLoop.containsKey(classSymbol)) {
+				int count = symbolsUsedInWhileLoop.get(classSymbol);
+				symbolsUsedInWhileLoop.put(classSymbol, count+1);
+			} else {
+				symbolsUsedInWhileLoop.put(classSymbol, 1);
+			}
+			 
 		}
-
 		
 		for (Expression expr : call.getArguments()) {
 			currentExpression.push(expr);

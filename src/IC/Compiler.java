@@ -41,6 +41,7 @@ public class Compiler {
     	
     	boolean printAST = false;
     	boolean dumpSymtab = false;
+    	boolean printlir = false;
     	
     	String icFileName = args[0];
     	String libFileName = null;
@@ -75,6 +76,16 @@ public class Compiler {
     			}
     			
     			dumpSymtab = true;
+    			
+    		} else if (arg.equals("-print-lir")) {
+
+    			if (printlir) {
+    				System.err.println("Error: '-print-lir' option is specified more than once.");
+    				return;
+    			}
+    			
+    			printlir = true;
+
     		} else {
     			System.err.println("Error: Unknown option '" + arg + "'.");
     			return;
@@ -166,7 +177,12 @@ public class Compiler {
 
     				semantics.run();
     				
-    				new LIRTranslationProcess((Program)result.value).run();
+    				LIRTranslationProcess translation = new LIRTranslationProcess((Program)result.value);
+    				try {
+    					translation.run();
+    				} catch (Exception e) {
+    					System.err.println("unknown error while translating IC to LIR.");
+    				}
     				
 	    			if (printAST) {
 	    				System.out.println(((Program)result.value).accept(new PrettyPrinter(args[0])));
@@ -175,6 +191,15 @@ public class Compiler {
 	    			if (dumpSymtab) {
 		    			System.out.println("");
 	    				new ScopesTypesPrinter(semantics.getGlobalScope(), semantics.getTypeTable()).print();	    				
+	    			}
+	    			
+	    			if (printlir) {
+	    				String lirfilename = icFileName;
+	    				if (icFileName.endsWith(".ic"))
+	    					lirfilename = icFileName.substring(0, 
+	    							icFileName.length() - 3);
+	    				lirfilename += ".lir";
+	    				translation.saveToFile(lirfilename);
 	    			}
 	    		}
 	    		

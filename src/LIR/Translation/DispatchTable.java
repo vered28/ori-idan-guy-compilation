@@ -57,6 +57,10 @@ public class DispatchTable implements Cloneable {
 		methods.add(method);
 	}
 	
+	public void removeMethod(Method method) {
+		methods.remove(method);
+	}
+	
 	public void addField(Field field) {
 		//0 is actually DV_PTR, so start offsets at 1 not 0
 		fields.add(field);

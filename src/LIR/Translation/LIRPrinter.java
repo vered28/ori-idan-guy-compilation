@@ -4,9 +4,15 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 
+import IC.AST.Field;
 import IC.AST.ICClass;
 import IC.AST.Method;
+import IC.Semantics.Scopes.ClassScope;
+import IC.Semantics.Scopes.Kind;
+import IC.Semantics.Scopes.ScopesTraversal;
+import IC.Semantics.Scopes.Symbol;
 import LIR.Instructions.ArrayLength;
 import LIR.Instructions.ArrayLoad;
 import LIR.Instructions.ArrayLocation;
@@ -41,12 +47,11 @@ import LIR.Instructions.VirtualCall;
 public class LIRPrinter implements LIRVisitor {
 
 	private LIRMethod mainMethod = null;
+	private Map<ICClass, DispatchTable> dispatchTables = null;
 	
 	@Override
 	public Object visit(LIRProgram program) {
 
-		//TODO: print comments of offsets
-		
 		StringBuilder sb = new StringBuilder();
 		
 		//first print string literals:
@@ -70,6 +75,7 @@ public class LIRPrinter implements LIRVisitor {
 		}
 				
 		//next, print dispatch tables:
+		dispatchTables = program.getDispatchTables();
 		for (ICClass icClass : program.getDispatchTables().keySet()) {
 			
 			DispatchTable table = program.getDispatchTables().get(icClass);
@@ -88,7 +94,21 @@ public class LIRPrinter implements LIRVisitor {
 				else
 					sb.append(", ");
 				
-				sb.append(LabelMaker.methodString(icClass, method));
+				ICClass methodOfClass = icClass;
+				if (icClass.hasSuperClass()) {
+					//might belong to parent:
+					Symbol symbol = ScopesTraversal.findSymbol(method.getName(),
+							Kind.VIRTUALMETHOD, icClass.getEnclosingScope());
+					if (symbol != null) {
+						methodOfClass = ScopesTraversal.getICClassFromClassScope(
+								(ClassScope)ScopesTraversal.getClassScopeByName(
+										icClass.getEnclosingScope(),
+										symbol.getNode().getEnclosingScope().getParentScope().getID())
+										);
+					}
+				}
+				
+				sb.append(LabelMaker.methodString(methodOfClass, method));
 				
 			}
 			
@@ -107,13 +127,38 @@ public class LIRPrinter implements LIRVisitor {
 		if (mainMethod != null)
 			sb.append(mainMethod.accept(this));
 
-		return sb.toString();
+		return sb.toString().trim(); //trim multiple new lines if exists
 	}
 
 	@Override
 	public Object visit(LIRClass lirclass) {
 
 		StringBuilder sb = new StringBuilder();
+		
+		ICClass cls = (ICClass)lirclass.getAssociactedICNode();
+		DispatchTable dt = dispatchTables.get(cls);
+		
+		if (dt.getFields().size() > 0) {
+			
+			sb.append("# ");
+			sb.append(cls.getName());
+			sb.append(" class fields offset:");
+			sb.append("\n");
+			sb.append("#---------------------------------------------");
+			sb.append("\n");
+			
+			
+			for (Field f : dt.getFields()) {
+				sb.append("# ");
+				sb.append(f.getName());
+				sb.append("\t");
+				sb.append(dt.getOffset(f));
+				sb.append("\n");
+			}
+			
+			sb.append("\n");
+			
+		}
 		
 		for (LIRMethod method : lirclass.getMethods()) {
 			
@@ -158,13 +203,13 @@ public class LIRPrinter implements LIRVisitor {
 	
 	@Override
 	public Object visit(ConstantString constant) {
-		// TODO Auto-generated method stub.
+		// these don't really exists...........................
 		return null;
 	}
 
 	@Override
 	public Object visit(ConstantDispatch constant) {
-		// TODO Auto-generated method stub.
+		// these don't really exists...........................
 		return null;
 	}
 
@@ -436,8 +481,30 @@ public class LIRPrinter implements LIRVisitor {
 
 	@Override
 	public Object visit(StaticCall call) {
-		// TODO Auto-generated method stub.
-		return null;
+
+		StringBuilder sb = new StringBuilder();
+		
+		sb.append("StaticCall ");
+		sb.append(call.getName());
+		sb.append("(");
+		
+		boolean first = true;
+		for (Memory mem : call.getParameters().keySet()) {
+			if (first)
+				first = false;
+			else
+				sb.append(", ");
+			sb.append(mem.accept(this));
+			sb.append("=");
+			sb.append(call.getParameter(mem).accept(this));
+		}
+		
+		sb.append("),");
+		sb.append(call.getReturnRegister().accept(this));
+		sb.append("\n");
+		
+		return sb.toString();
+	
 	}
 
 	@Override
@@ -447,7 +514,7 @@ public class LIRPrinter implements LIRVisitor {
 		
 		sb.append("VirtualCall ");
 		sb.append(call.getOffset().accept(this));
-				sb.append("(");
+		sb.append("(");
 		
 		boolean first = true;
 		for (Memory mem : call.getParameters().keySet()) {

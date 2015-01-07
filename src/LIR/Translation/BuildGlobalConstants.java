@@ -43,6 +43,10 @@ import IC.AST.VirtualCall;
 import IC.AST.VirtualMethod;
 import IC.AST.Visitor;
 import IC.AST.While;
+import IC.Semantics.Scopes.ClassScope;
+import IC.Semantics.Scopes.Kind;
+import IC.Semantics.Scopes.ScopesTraversal;
+import IC.Semantics.Scopes.Symbol;
 
 public class BuildGlobalConstants implements Visitor {
 
@@ -111,7 +115,11 @@ public class BuildGlobalConstants implements Visitor {
 			DispatchTable dt = new DispatchTable(icClass.getName());
 			if (icClass.hasSuperClass()) {
 				dt = (DispatchTable)dispatchTables.get(
-						currentClass).clone();
+						ScopesTraversal.getICClassFromClassScope(
+								(ClassScope)ScopesTraversal.getClassScopeByName(
+										icClass.getEnclosingScope(),
+										icClass.getSuperClassName()))
+						).clone();
 				dt.setName(icClass.getName());
 			}
 			dispatchTables.put(icClass, dt);
@@ -138,6 +146,14 @@ public class BuildGlobalConstants implements Visitor {
 
 	@Override
 	public Object visit(VirtualMethod method) {
+		
+		//is override?
+		Symbol methodSymbol = ScopesTraversal.findSymbol(method.getName(),
+				Kind.VIRTUALMETHOD, currentClass.getEnclosingScope().getParentScope());
+		if (methodSymbol != null) {
+			//first must remove original method from dispatch table:
+			dispatchTables.get(currentClass).removeMethod((Method)methodSymbol.getNode());
+		}
 		dispatchTables.get(currentClass).addMethod(method);
 		
 		for (Statement stmt : method.getStatements()) {

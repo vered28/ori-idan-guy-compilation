@@ -1,0 +1,29 @@
+_DV_B: [_A_foo, _B_foo2]
+_DV_A: [_A_foo, _A_foo2]
+
+_A_foo:
+Move b,R1
+Add a,R1
+Return R1
+
+_A_foo2:
+Move a,R1
+Mul 2,R1
+Return R1
+
+_B_foo2:
+Move a,R1
+Mul a,R1
+Return R1
+
+_ic_main:
+Library __allocateObject(4),R1
+MoveField _DV_B,R1.0
+VirtualCall R1.1(a=8),R2
+Library __printi(R2),Rdummy
+Library __allocateObject(4),R3
+MoveField _DV_A,R3.0
+Move R3,R1
+VirtualCall R1.1(a=8),R3
+Move R3,R2
+Library __printi(R2),Rdummy

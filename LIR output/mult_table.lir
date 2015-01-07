@@ -1,0 +1,77 @@
+str1: " "
+str2: ""
+_DV_Quicksort: [_Quicksort_foo]
+
+_Quicksort_foo:
+Move 10,R1
+Library __allocateArray(40),R2
+Move 0,R3
+_Quicksort_foo_allocation_while:
+Compare R3,R1
+JumpLE _Quicksort_foo_allocation_end
+Move R1,R4
+Mul 4,R4
+Library __allocateArray(R4),R4
+MoveArray R4,R2[R3]
+Inc R3
+Jump _Quicksort_foo_allocation_while
+_Quicksort_foo_allocation_end:
+Move 0,i
+_Quicksort_foo_while_label:
+Move 10,R1
+Compare i,R1
+JumpLE _Quicksort_foo_end_label
+Move 0,j
+_Quicksort_foo_while_label1:
+Move 10,R1
+Compare j,R1
+JumpLE _Quicksort_foo_end_label1
+Move i,R1
+Add 1,R1
+Move j,R3
+Add 1,R3
+Mul R1,R3
+Move i,R4
+MoveArray R2[R4],R5
+Move j,R6
+MoveArray R3,R5[R6]
+Inc R6
+Move R6,j
+Move R4,i
+Jump _Quicksort_foo_while_label1
+_Quicksort_foo_end_label1:
+Inc R4
+Move R6,j
+Move R4,i
+Jump _Quicksort_foo_while_label
+_Quicksort_foo_end_label:
+Move 0,R4
+_Quicksort_foo_while_label2:
+Move 10,R3
+Compare R4,R3
+JumpLE _Quicksort_foo_end_label2
+Move 0,j
+_Quicksort_foo_while_label3:
+Move 10,R3
+Compare j,R3
+JumpLE _Quicksort_foo_end_label3
+MoveArray R2[R4],R3
+Move j,R6
+MoveArray R3[R6],R7
+Library __printi(R7),Rdummy
+Library __print(str1),Rdummy
+Inc R6
+Move R6,j
+Jump _Quicksort_foo_while_label3
+_Quicksort_foo_end_label3:
+Library __println(str2),Rdummy
+Inc R4
+Move R6,j
+Jump _Quicksort_foo_while_label2
+_Quicksort_foo_end_label2:
+Return Rdummy
+
+_ic_main:
+Library __allocateObject(4),R2
+MoveField _DV_Quicksort,R2.0
+VirtualCall R2.0(),Rdummy

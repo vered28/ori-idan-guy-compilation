@@ -32,5 +32,9 @@ public class StaticCall extends Call {
 	public void addParameter(Memory mem, BasicOperand param) {
 		params.put(mem, param);
 	}
+	
+	public Map<Memory, BasicOperand> getParameters() {
+		return params;
+	}
 
 }

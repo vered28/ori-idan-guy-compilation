@@ -46,6 +46,13 @@ public class LabelMaker {
 		return "_" + icClass.getName() + "_" + method.getName() + suffix;
 	}
 	
+	public static String methodString(String classname, String methodname, boolean isStatic) {
+		String suffix = "";
+		if (isStatic)
+			suffix += "_static";
+		return "_" + classname + "_" + methodname + suffix;
+	}
+	
 	public static String labelString(ICClass icClass, Method method, String basicLabel) {
 		return methodString(icClass, method) + basicLabel;
 	}

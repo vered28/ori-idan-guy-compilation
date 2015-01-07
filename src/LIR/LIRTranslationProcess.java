@@ -1,5 +1,8 @@
 package LIR;
 
+import java.io.BufferedWriter;
+import java.io.FileWriter;
+import java.io.IOException;
 import java.util.Map;
 
 import IC.AST.ICClass;
@@ -33,7 +36,6 @@ public class LIRTranslationProcess {
 	
 		translate();
 		
-		System.out.println(lirprogram.accept(new LIRPrinter()));
 	}
 	
 	private void buildGlobalConstants() {
@@ -50,5 +52,23 @@ public class LIRTranslationProcess {
 	private void translate() {
 		lirprogram = (LIRProgram)program.accept(
 				new TranslateIC2LIR(literals, dispatchTables));
+	}
+	
+	public void saveToFile(String filename) {
+		
+		String lir = (String)lirprogram.accept(new LIRPrinter());
+		
+		try {
+			
+			FileWriter fw = new FileWriter(filename);
+			BufferedWriter bw = new BufferedWriter(fw);
+			bw.write(lir);
+			bw.close();
+			
+		} catch (IOException e) {
+			System.err.println("failed to create lir file.");
+		}
+		
+
 	}
 }
