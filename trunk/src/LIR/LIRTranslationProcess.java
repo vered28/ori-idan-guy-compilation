@@ -39,9 +39,8 @@ public class LIRTranslationProcess {
 		markPureMethods();
 		setWeightsToExpressions();
 		
-		translate();		
+		translate();
 		
-		System.out.println(lirprogram.accept(new LIRPrinter()));
 	}
 	
 	private void buildGlobalConstants() {
