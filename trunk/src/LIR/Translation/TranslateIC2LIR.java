@@ -889,7 +889,15 @@ public class TranslateIC2LIR implements Visitor {
 		//		Move R3, R1.1
 		// (when x is used again later [which is also why we use R3 and don't
 		//  simply override R2 with the calculation's value])
-		Object assign = assignment.getAssignment().accept(this);
+
+		NewArray newArray = isNewArray(assignment.getAssignment());
+		Object assign;
+		if (newArray != null) {
+			assign = initNewArray(assignment.getAssignment(), newArray);
+		} else { 
+			assign = assignment.getAssignment().accept(this);
+		}
+
 		lhsOfAssignmentStatement = true;
 		Operand var = (Operand)assignment.getVariable().accept(this);
 		lhsOfAssignmentStatement = false;
@@ -1426,8 +1434,11 @@ public class TranslateIC2LIR implements Visitor {
 		
 		Expression array = expr;
 		while (array instanceof ArrayLocation) {
+			
 			Object size = ((ArrayLocation)array).getIndex().accept(this);
 			Register sizeReg = null;
+			boolean alreadyAdded = false;
+
 			if (size instanceof Register) {
 				sizeReg = (Register)size;
 			} else {
@@ -1442,7 +1453,7 @@ public class TranslateIC2LIR implements Visitor {
 							(LIR.Instructions.ArrayLocation)size,
 							sizeReg));
 				} else {
-					boolean alreadyAdded = false;
+
 					if (size instanceof ConstantInteger) {
 						for (BasicOperand bo : basics.keySet()) {
 							if (bo instanceof ConstantInteger &&
@@ -1464,17 +1475,22 @@ public class TranslateIC2LIR implements Visitor {
 					}
 					
 					if (!alreadyAdded) {
-						runtimeCheckSize(newArray, sizeReg);
 						currentMethodInstructions.add(new Move(newArray,
 								(BasicOperand)size, sizeReg));
 						basics.put((BasicOperand)size, sizeReg);
-						dimensionSizes.add(0, sizeReg);
 					} else {
 						RegisterPool.putback(sizeReg);
 						registersToDispose.remove(sizeReg);
 					}
+					
 				}
 			}
+			
+			if (!alreadyAdded) {
+				runtimeCheckSize(newArray, sizeReg);
+				dimensionSizes.add(0, sizeReg);
+			}
+
 			array = ((ArrayLocation)array).getArray();
 		}
 		
@@ -1936,6 +1952,10 @@ public class TranslateIC2LIR implements Visitor {
 			tmp = RegisterPool.get(location);
 			currentMethodInstructions.add(new Move(location,
 					(Memory)index, tmp));
+		} else if (index instanceof RegisterOffset) {
+			tmp = RegisterPool.get(location);
+			currentMethodInstructions.add(new FieldLoad(location,
+					(RegisterOffset)index, tmp));
 		}
 		
 		LIR.Instructions.ArrayLocation arrayLocation =
@@ -1943,8 +1963,13 @@ public class TranslateIC2LIR implements Visitor {
 						(tmp == null ? (BasicOperand)index : tmp));
 		
 		if (tmp != null) {
-			decideIfToKillRegister(tmp,
-					((Memory)index).getVariableName(), location);
+			if (index instanceof Memory) {
+				decideIfToKillRegister(tmp,
+						((Memory)index).getVariableName(), location);
+			} else if (index instanceof RegisterOffset) {
+				decideIfToKillRegister(tmp,
+						((RegisterOffset)index).getSymbol().getID(), location);				
+			}
 		}
 		
 		return arrayLocation;
@@ -2772,8 +2797,10 @@ public class TranslateIC2LIR implements Visitor {
 			
 			currentMethodInstructions.add(new Jump(binaryOp, jump, jumpToLabelIfConditionIsFalse));
 			
-			if (!(op2 instanceof Register))
+			if (!(op2 instanceof Register)) {
 				RegisterPool.putback(result);
+				variables.remove(variables.getSymbol(result));
+			}
 			
 			if (op1 instanceof Register) {
 				if (binaryOp.getFirstOperand() instanceof MathBinaryOp ||

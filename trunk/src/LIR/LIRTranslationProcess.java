@@ -41,6 +41,7 @@ public class LIRTranslationProcess {
 		
 		translate();		
 		
+		System.out.println(lirprogram.accept(new LIRPrinter()));
 	}
 	
 	private void buildGlobalConstants() {
